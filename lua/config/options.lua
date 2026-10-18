@@ -81,6 +81,17 @@ opt.termguicolors = true
 opt.laststatus = 2
 opt.showmode = false
 opt.cmdheight = 1
+opt.showtabline = 1
+opt.splitkeep = "screen"
+opt.fillchars = {
+  eob = " ",
+  vert = "│",
+  horiz = "─",
+  fold = " ",
+  foldopen = "▾",
+  foldclose = "▸",
+  diff = "╱",
+}
 
 -- Floating window border: the 'winborder' option exists in 0.12+.
 pcall(function()

@@ -3,6 +3,7 @@
 -- utils.lua has no setup and is required implicitly by the other modules.
 
 require("config.options")
+require("config.highlights").setup()
 require("config.statusline")
 require("config.diagnostics")
 require("config.treesitter").setup()

@@ -173,7 +173,54 @@ local function render(s)
   if #results > n then
     lines[#lines + 1] = ("  ... %d more"):format(#results - n)
   end
+  if #results == 0 and s.query ~= "" then
+    lines[#lines + 1] = "  (no matches)"
+  end
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  -- Visual hierarchy: prompt, selected row, matched text, secondary paths.
+  vim.api.nvim_buf_clear_namespace(buf, s.ns, 0, -1)
+  pcall(vim.api.nvim_buf_add_highlight, buf, s.ns, "PickerPrompt", 0, 0, -1)
+  for i = 1, n do
+    local line_idx = i
+    local text = results[i]
+    local selected = (i == s.selected)
+    -- Directory portion of a path is visually secondary.
+    local last_slash = 0
+    for j = #text, 1, -1 do
+      if text:sub(j, j) == "/" then
+        last_slash = j
+        break
+      end
+    end
+    if last_slash > 0 then
+      pcall(vim.api.nvim_buf_add_highlight, buf, s.ns, "PickerPath", line_idx, 2, last_slash + 2)
+    end
+    -- Selected row background.
+    if selected then
+      pcall(vim.api.nvim_buf_add_highlight, buf, s.ns, "PickerSelected", line_idx, 0, -1)
+    end
+    -- Matched query text stays on top of the row highlight.
+    if s.query ~= "" then
+      local init = 1
+      while true do
+        local a, b = text:find(s.query, init, true)
+        if not a then
+          break
+        end
+        pcall(vim.api.nvim_buf_add_highlight, buf, s.ns, "PickerMatch", line_idx, 2 + a - 1, 2 + b)
+        init = b + 1
+        if init > #text then
+          break
+        end
+      end
+    end
+  end
+  if #results == 0 and s.query ~= "" then
+    pcall(vim.api.nvim_buf_add_highlight, buf, s.ns, "PickerEmpty", #lines - 1, 0, -1)
+  end
+  if #results > n then
+    pcall(vim.api.nvim_buf_add_highlight, buf, s.ns, "PickerEmpty", n + 1, 0, -1)
+  end
   -- Screen repaint: while the picker blocks in getcharstr(), buffer changes
   -- are not flushed to the TUI automatically (no repaint between keypresses
   -- on some terminals, e.g. under tmux) or the preview updates never show.
@@ -240,23 +287,49 @@ end
 local function open_picker(spec)
   close_picker()
 
-  local width = math.max(40, math.min(90, math.floor(vim.o.columns * 0.55)))
-  local height = math.max(5, math.min(18, math.floor(vim.o.lines * 0.5)))
-  local row = math.floor((vim.o.lines - height) / 2) - 1
-  local col = math.floor((vim.o.columns - width) / 2)
+  local columns = vim.o.columns
+  local lines = vim.o.lines
+
+  -- Constrain the picker to the actual editor grid, even in a tiny terminal.
+  local width = math.floor(columns * 0.55)
+  width = math.max(20, math.min(90, width))
+  width = math.min(width, columns)
+  if width < 1 then width = columns end
+
+  local height = math.floor(lines * 0.5)
+  height = math.max(5, math.min(18, height))
+  height = math.min(height, lines)
+  if height < 1 then height = lines end
+
+  local preview_width = math.floor(columns * 0.3)
+  preview_width = math.max(15, math.min(50, preview_width))
+  preview_width = math.min(preview_width, columns)
+  if preview_width < 1 then preview_width = 1 end
+
+  -- Center the picker *and* its preview as one component. The previous code
+  -- centered only the main float and then placed the preview two columns to
+  -- its right, which made the whole two-float layout drift right.
+  local total_width = width + 2 + preview_width
+  if total_width > columns then
+    total_width = columns
+  end
+  local col = math.floor((columns - total_width) / 2)
+  col = math.max(0, math.min(col, columns - total_width))
+
+  local row = math.floor((lines - height) / 2)
+  row = math.max(0, math.min(row, lines - height))
+
+  local preview_col = col + width + 2
+  preview_col = math.max(0, math.min(preview_col, columns - preview_width))
+
   local buf = vim.api.nvim_create_buf(false, true)
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor", row = row, col = col, width = width, height = height,
     style = "minimal", border = "rounded", title = " " .. (spec.prompt or "pick") .. " ",
   })
   local preview_buf = vim.api.nvim_create_buf(false, true)
-  local preview_width = math.max(20, math.min(50, math.floor(vim.o.columns * 0.3)))
-  -- Clamp the preview inside the editor: an out-of-bounds position leaves
-  -- the preview off-screen (or clipped) on narrow panes.
-  local preview_col = math.min(col + width + 2, math.max(0, vim.o.columns - preview_width))
-  local preview_row = math.max(0, row)
   local preview_win = vim.api.nvim_open_win(preview_buf, false, {
-    relative = "editor", row = preview_row, col = preview_col, width = preview_width, height = height,
+    relative = "editor", row = row, col = preview_col, width = preview_width, height = height,
     style = "minimal", border = "rounded",
   })
   if not win or not preview_win then

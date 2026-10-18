@@ -15,8 +15,9 @@ detected at runtime and never fabricated when running on stable.
 ├── uninstall.sh      manifest-driven uninstaller with confirmation
 ├── smoke.sh          automated headless tests
 └── lua/config/
-    ├── options.lua    editor options, persistent state dirs, clipboards
-    ├── keymaps.lua    general keybindings
+    ├── options.lua     editor options, persistent state dirs, clipboards
+    ├── highlights.lua  centralized palette and semantic highlight groups
+    ├── keymaps.lua     general keybindings
     ├── autocmds.lua   editor events (yank highlight, cursor restore, …)
     ├── diagnostics.lua diagnostic display and jump API
     ├── statusline.lua minimal native statusline
