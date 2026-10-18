@@ -93,21 +93,13 @@ map("n", "<leader>gd", function() git_term("git diff") end, { desc = "Git diff" 
 map("n", "<leader>gD", function() git_term("git diff --check") end, { desc = "Git diff --check" })
 map("n", "<leader>gl", function() git_term("git log --oneline --decorate -20") end, { desc = "Git log" })
 
--- AI assistant terminal (provider-agnostic).
+-- OpenCode terminal.
 map("n", "<leader>ai", function()
-  local candidates = { "claude", "codex", "gemini", "opencode" }
-  local chosen
-  for _, name in ipairs(candidates) do
-    if vim.fn.executable(name) == 1 then
-      chosen = name
-      break
-    end
-  end
-  if chosen then
+  if vim.fn.executable("opencode") == 1 then
     vim.cmd("split")
-    vim.cmd("terminal " .. chosen)
+    vim.cmd("terminal opencode")
   else
-    vim.notify("No AI CLI found; open terminal and run your tool", vim.log.levels.INFO)
+    vim.notify("opencode is not installed", vim.log.levels.INFO)
     vim.cmd("split | terminal")
   end
-end, { desc = "AI assistant terminal" })
+end, { desc = "OpenCode terminal" })
