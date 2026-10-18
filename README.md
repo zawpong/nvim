@@ -7,6 +7,23 @@ A minimal, fast, native-first Neovim setup for Arch Linux. No third-party Neovim
 - Neovim 0.12.5 (stable). Minimum: 0.11.0 (for `vim.lsp.config`/`vim.lsp.enable`).
 - Older releases are not supported.
 
+## Project layout
+
+```text
+~/.config/nvim/
+├── init.lua
+├── README.md
+├── smoke.sh
+└── lua/
+    └── config/
+        ├── options.lua
+        ├── statusline.lua
+        ├── diagnostics.lua
+        ├── keymaps.lua
+        ├── autocmds.lua
+        └── lsp.lua
+```
+
 ## Installation
 
 Back up any existing config first:
