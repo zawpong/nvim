@@ -292,6 +292,11 @@ if [ "$CONFIG_SRC" != "$CONFIG_DST" ]; then
     [ -f "$CONFIG_SRC/$f" ] && run cp "$CONFIG_SRC/$f" "$CONFIG_DST/$f"
   done
   run cp "$CONFIG_SRC"/lua/config/*.lua "$CONFIG_DST/lua/config/"
+  # Remove modules that were renamed or retired in later UI revisions so an
+  # upgrade cannot leave stale context/winbar aliases behind.
+  for obsolete in contextline.lua winbar.lua context.lua gitline.lua context_line.lua; do
+    [ -f "$CONFIG_DST/lua/config/$obsolete" ] && run rm -f "$CONFIG_DST/lua/config/$obsolete"
+  done
   # Manifest: exact files this project installed; uninstall.sh reads it.
   {
     printf 'backup=%s\n' "${BACKUP:-none}"
