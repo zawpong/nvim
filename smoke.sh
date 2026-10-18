@@ -198,6 +198,121 @@ assert(accepted == nil, 'expected nil accept, got ' .. tostring(accepted))
 print('PICKER_EMPTY_OK')")"
 assert_contains "$out" "PICKER_EMPTY_OK" "no-match search accepts nil without an error"
 
+# ---------------------------------------------------------------- picker input handling (backspace / arrows / utf-8)
+
+out="$(runlua "picker backspace ascii" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys('ab' .. tc('<BS>', true, true, true) .. tc('<Down>', true, true, true) .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'ab.txt','a.txt'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'ab.txt', 'ascii backspace: got ' .. tostring(accepted))
+print('BS_ASCII_OK')")"
+assert_contains "$out" "BS_ASCII_OK" "backspace removes last ASCII char"
+
+out="$(runlua "picker backspace utf8" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys('café' .. tc('<BS>', true, true, true) .. tc('<Down>', true, true, true) .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'café.txt','cafe.txt'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'cafe.txt', 'utf8 backspace: got ' .. tostring(accepted))
+print('BS_UTF8_OK')")"
+assert_contains "$out" "BS_UTF8_OK" "backspace removes one complete UTF-8 char"
+
+out="$(runlua "picker backspace empty safe" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys(tc('<BS>', true, true, true) .. tc('<BS>', true, true, true) .. tc('<Esc>', true, true, true), 't') end)
+local closed = false
+s._open_picker({ prompt='t', candidates={'a','b'}, on_close=function() closed=true end })
+assert(closed, 'empty backspace must not crash or hang')
+print('BS_EMPTY_OK')")"
+assert_contains "$out" "BS_EMPTY_OK" "repeated backspace on empty query is safe"
+
+out="$(runlua "picker up changes selection" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys(tc('<Down>', true, true, true) .. tc('<Down>', true, true, true) .. tc('<Up>', true, true, true) .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'first.txt','second.txt','third.txt'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'second.txt', 'up: got ' .. tostring(accepted))
+print('UP_OK')")"
+assert_contains "$out" "UP_OK" "Up moves selection to previous result"
+
+out="$(runlua "picker down changes selection" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys(tc('<Down>', true, true, true) .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'first.txt','second.txt','third.txt'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'second.txt', 'down: got ' .. tostring(accepted))
+print('DOWN_OK')")"
+assert_contains "$out" "DOWN_OK" "Down moves selection to next result"
+
+out="$(runlua "picker ctrl j/k/n/p" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys(tc('<C-J>', true, true, true) .. tc('<C-J>', true, true, true) .. tc('<C-K>', true, true, true) .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'first.txt','second.txt','third.txt'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'second.txt', 'ctrl j/k: got ' .. tostring(accepted))
+vim.schedule(function() vim.fn.feedkeys(tc('<C-N>', true, true, true) .. tc('<C-P>', true, true, true) .. tc('<Esc>', true, true, true), 't') end)
+local closed = false
+s._open_picker({ prompt='t', candidates={'x','y'}, on_close=function() closed=true end })
+assert(closed, 'ctrl n/p cancel path broken')
+print('CTRL_JK_NP_OK')")"
+assert_contains "$out" "CTRL_JK_NP_OK" "Ctrl-J/K and Ctrl-N/P navigate results"
+
+out="$(runlua "picker esc cancels" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys(tc('<Esc>', true, true, true), 't') end)
+local accepted, closed = nil, false
+s._open_picker({ prompt='t', candidates={'a'}, accept_fn=function(item) accepted=item end, on_close=function() closed=true end })
+assert(accepted == nil and closed, 'esc must cancel without accepting')
+print('ESC_OK')")"
+assert_contains "$out" "ESC_OK" "Escape cancels without opening"
+
+out="$(runlua "picker zero candidates" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys(tc('<Down>', true, true, true) .. tc('<Up>', true, true, true) .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={}, accept_fn=function(item) accepted=item end })
+assert(accepted == nil, 'zero candidates: got ' .. tostring(accepted))
+print('ZERO_OK')")"
+assert_contains "$out" "ZERO_OK" "navigation safe with zero candidates"
+
+out="$(runlua "picker one candidate" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys(tc('<Down>', true, true, true) .. tc('<Up>', true, true, true) .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'only.txt'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'only.txt', 'one candidate: got ' .. tostring(accepted))
+print('ONE_OK')")"
+assert_contains "$out" "ONE_OK" "navigation safe with one candidate"
+
+out="$(runlua "picker query change clamps selection" "
+local s = require('config.search')
+local tc = vim.api.nvim_replace_termcodes
+vim.schedule(function() vim.fn.feedkeys('ab' .. tc('<Down>', true, true, true) .. tc('<Down>', true, true, true) .. 'c' .. tc('<CR>', true, true, true), 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'abc','abd','abe'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'abc', 'clamp: got ' .. tostring(accepted))
+print('CLAMP_OK')")"
+assert_contains "$out" "CLAMP_OK" "query changes keep selection in valid range"
+
+out="$(runlua "picker unicode query" "
+local s = require('config.search')
+vim.schedule(function() vim.fn.feedkeys('café' .. '\\r', 't') end)
+local accepted
+s._open_picker({ prompt='t', candidates={'café.txt','plain.txt'}, accept_fn=function(item) accepted=item end })
+assert(accepted == 'café.txt', 'unicode query: got ' .. tostring(accepted))
+print('UNICODE_QUERY_OK')")"
+assert_contains "$out" "UNICODE_QUERY_OK" "typing unicode query filters candidates"
+
 # ---------------------------------------------------------------- grep jump
 
 out="$(runlua "grep jump" "

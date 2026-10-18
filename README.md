@@ -128,9 +128,10 @@ Search pickers (all four `<leader>f?` flows): type to fuzzy-filter
 (`fzf --filter` when fzf is installed, otherwise the native `matchfuzzy`),
 `Enter` accepts, `Esc` cancels, `Ctrl-J`/`Ctrl-K` (or Ctrl-N/P) move the
 selection, Backspace edits the query (including UTF-8), `Tab` moves back.
-Arrow keys and other multi-byte keys are deliberately ignored so a stray
-`<Up>` (whose ESC byte would otherwise cancel the picker) cannot close it:
-the picker stays open and the keys do nothing. The floats are force-repainted
+`Up`/`Down` (and `Left`/`Right`, which are no-ops) also work: arrow keys are
+decoded by `getcharstr()` into key codes and classified with `keytrans()`, so a
+stray `<Up>` can no longer be misread as the `Esc` that cancels the picker.
+The floats are force-repainted
 (`redraw`) before the input loop and after every query change, because without
 that some terminals (verified under tmux/xterm-256color) never paint the
 two-float layout while `getcharstr()` blocks. The preview pane is clamped
@@ -262,7 +263,7 @@ are left running at rest.
 ## Testing
 
 ```sh
-./smoke.sh             # 41 automated headless tests (verbatim results)
+./smoke.sh             # 52 automated headless tests (verbatim results)
 ./smoke.sh --verbose   # also print raw Neovim output per test
 ./install.sh --check
 ```

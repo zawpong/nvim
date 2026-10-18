@@ -290,30 +290,37 @@ local function open_picker(spec)
   -- focused but never appear until the first keypress is consumed.
   vim.cmd("redraw")
 
-  -- Type-ahead loop. Key bytes: 27 Esc, 13 Enter, 8/127 Backspace,
-  -- 10 = Ctrl-J next, 11 = Ctrl-K prev, 14/16 = Ctrl-N/P, 9 Tab prev.
+  -- Type-ahead loop. Neovim's getcharstr() already decodes terminal escape
+  -- sequences into key codes (e.g. "\<Up>"), so we classify with keytrans()
+  -- instead of raw byte values. This is what makes Backspace and arrow keys
+  -- work in a real terminal: they arrive as multi-byte key codes, not as the
+  -- single bytes the old code expected. Esc is still a single byte (27) but
+  -- is also reported by keytrans() as "<Esc>".
   while true do
     local ok, ch = pcall(vim.fn.getcharstr)
     if not ok or picker ~= s then
       return -- closed by accept/cancel on another path
     end
-    if #ch > 1 then
-      -- Multi-byte keycodes (arrow keys, function keys, <C-S-…>) are not
-      -- picker keys. Ignoring them prevents the leading ESC byte of e.g.
-      -- <Up> from being read as the Esc-cancel key.
+    if ch == nil or ch == "" then
       goto continue
     end
-    local b = ch:byte()
-    if b == 27 then
+    local key = vim.fn.keytrans(ch)
+    if key == "<Esc>" or ch:byte() == 27 then
       close_picker()
       return
-    elseif b == 13 then
+    elseif key == "<CR>" then
       accept(s)
       return
-    elseif b == 8 or b == 127 then
+    elseif key == "<Up>" then
+      move(s, -1)
+    elseif key == "<Down>" then
+      move(s, 1)
+    elseif key == "<BS>" or key == "<C-H>" or ch == "\8" or ch == "\127" then
+      -- Backspace: drop the last complete UTF-8 character. strcharpart is
+      -- character-aware, so multibyte code points are removed as one unit.
       local n = vim.fn.strchars(s.query)
       if n > 0 then
-        s.query = vim.fn.strcharpart(s.query, 0, n - 1) -- UTF-8 aware
+        s.query = vim.fn.strcharpart(s.query, 0, n - 1)
       end
       s.selected = 1
       render(s)
@@ -321,13 +328,25 @@ local function open_picker(spec)
       if s.on_query then
         pcall(s.on_query, s.query)
       end
-    elseif b == 10 or b == 14 then
+    elseif key == "<NL>" or key == "<C-J>" or key == "<C-N>" or ch == "\10" or ch == "\14" then
+      -- Ctrl-J / Ctrl-N: move selection down.
       move(s, 1)
-    elseif b == 11 or b == 16 or b == 9 then
+    elseif key == "<C-K>" or key == "<C-P>" or ch == "\11" or ch == "\16" then
+      -- Ctrl-K / Ctrl-P: move selection up.
       move(s, -1)
-    elseif b == nil or b < 32 then
+    elseif key == "<Tab>" or ch == "\9" then
+      -- Tab: documented "move back" (up).
+      move(s, -1)
+    elseif key == "<Left>" or key == "<Right>" then
+      -- No inline cursor in this picker design; ignore so they never cancel.
+      goto continue
+    elseif ch:byte(1) == 128 then
+      -- Any other special key (function keys, etc.): ignore, keep open.
+      goto continue
+    elseif ch:byte() ~= nil and (ch:byte() < 32 or ch:byte() == 127) then
       -- ignore other control keys
     else
+      -- Printable character (ASCII or multibyte UTF-8): append and refresh.
       s.query = s.query .. ch
       s.selected = 1
       render(s)
