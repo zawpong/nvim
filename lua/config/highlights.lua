@@ -218,12 +218,54 @@ function M.apply()
     ["@text.uri"] = { fg = cyan, underline = true },
     ["@text.reference"] = { fg = cyan },
     ["@markup.heading"] = { fg = green, bold = true },
+    ["@markup.heading.1"] = { fg = green, bold = true },
+    ["@markup.heading.2"] = { fg = strong, bold = true },
+    ["@markup.heading.3"] = { fg = cyan, bold = true },
+    ["@markup.heading.4"] = { fg = text, bold = true },
+    ["@markup.heading.5"] = { fg = secondary, bold = true },
+    ["@markup.heading.6"] = { fg = muted, bold = true },
     ["@markup.link"] = { fg = cyan, underline = true },
-    ["@markup.raw"] = { fg = "#9FCFA8" },
+    ["@markup.link.label"] = { fg = cyan },
+    ["@markup.link.url"] = { fg = muted, underline = true },
+    ["@markup.raw"] = { fg = "#9FCFA8", bg = surface },
+    ["@markup.raw.block"] = { fg = text, bg = surface },
     ["@markup.list"] = { fg = green },
+    ["@markup.list.checked"] = { fg = strong },
+    ["@markup.list.unchecked"] = { fg = muted },
+    ["@markup.quote"] = { fg = secondary, italic = true },
+    ["@markup.italic"] = { fg = text, italic = true },
+    ["@markup.strong"] = { fg = text, bold = true },
+    ["@markup.strikethrough"] = { fg = muted, strikethrough = true },
   }
   for name, spec in pairs(ts) do
     H(name, spec)
+  end
+
+  -- Markdown presentation (legacy syntax groups + treesitter captures).
+  local md_groups = {
+    markdownH1 = "@markup.heading.1",
+    markdownH2 = "@markup.heading.2",
+    markdownH3 = "@markup.heading.3",
+    markdownH4 = "@markup.heading.4",
+    markdownH5 = "@markup.heading.5",
+    markdownH6 = "@markup.heading.6",
+    markdownHeadingDelimiter = "Delimiter",
+    markdownCode = "@markup.raw",
+    markdownCodeBlock = "@markup.raw.block",
+    markdownCodeDelimiter = "Delimiter",
+    markdownBlockquote = "@markup.quote",
+    markdownListMarker = "@markup.list",
+    markdownOrderedListMarker = "@markup.list",
+    markdownLinkText = "@markup.link.label",
+    markdownUrl = "@markup.link.url",
+    markdownItalic = "@markup.italic",
+    markdownBold = "@markup.strong",
+    markdownBoldItalic = "@markup.strong",
+    markdownStrike = "@markup.strikethrough",
+    markdownRule = "PreProc",
+  }
+  for name, target in pairs(md_groups) do
+    pcall(vim.api.nvim_set_hl, 0, name, { link = target })
   end
 
   -- Picker-specific groups.
