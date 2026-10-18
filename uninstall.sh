@@ -58,6 +58,15 @@ restore_backups() {
 
 restore_backups
 
+# Remove modules retired in later UI revisions, even if they predate the
+# current manifest.
+for obsolete in contextline.lua winbar.lua context.lua gitline.lua context_line.lua; do
+  target="$CONFIG_DST/lua/config/$obsolete"
+  if [ -f "$target" ]; then
+    rm -f "$target" && log "removed obsolete module: $obsolete"
+  fi
+done
+
 # Identify manifest-driven files.
 if [ -f "$MANIFEST" ]; then
   while IFS= read -r line; do
@@ -96,10 +105,13 @@ else
   warn "no manifest found; NOT deleting anything (safety rule: only manifest-registered files may be removed)"
 fi
 
-# Remove now-empty lua dir if our manifest-driven copy was its only content.
-if [ -d "$CONFIG_DST/lua/config" ] && [ -z "$(ls -A "$CONFIG_DST/lua/config" 2>/dev/null)" ]; then
-  rmdir "$CONFIG_DST/lua/config" 2>/dev/null && log "removed empty dir: lua/config"
-fi
+# Remove now-empty lua directories after manifest-driven file removal.
+for d in lua/config lua; do
+  target="$CONFIG_DST/$d"
+  if [ -d "$target" ] && [ -z "$(ls -A "$target" 2>/dev/null)" ]; then
+    rmdir "$target" 2>/dev/null && log "removed empty dir: $d"
+  fi
+done
 
 log "uninstall complete. Restore a backup with, for example:"
 log "  tar -xzf '$(dirname "$CONFIG_DST")'/nvim-backup-<timestamp>.tar.gz -C '$(dirname "$CONFIG_DST")'"

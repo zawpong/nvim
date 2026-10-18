@@ -303,6 +303,9 @@ if [ "$CONFIG_SRC" != "$CONFIG_DST" ]; then
     for f in init.lua README.md install.sh uninstall.sh smoke.sh; do
       [ -f "$CONFIG_SRC/$f" ] && printf 'file=%s\n' "$f"
     done
+    for f in "$CONFIG_SRC"/lua/config/*.lua; do
+      [ -f "$f" ] && printf 'file=lua/config/%s\n' "$(basename "$f")"
+    done
     printf 'dir=lua/config\n'
     printf 'nightly_dir=%s\n' "$NVIM_LOCAL_OPT/nvim"
     printf 'nightly_link=%s/nvim\n' "$NVIM_LOCAL_BIN"
@@ -312,6 +315,9 @@ else
   {
     printf 'backup=none\n'
     printf 'file=init.lua\nfile=README.md\nfile=install.sh\nfile=uninstall.sh\nfile=smoke.sh\n'
+    for f in "$CONFIG_SRC"/lua/config/*.lua; do
+      [ -f "$f" ] && printf 'file=lua/config/%s\n' "$(basename "$f")"
+    done
     printf 'dir=lua/config\n'
     printf 'nightly_dir=%s\n' "$NVIM_LOCAL_OPT/nvim"
     printf 'nightly_link=%s/nvim\n' "$NVIM_LOCAL_BIN"
