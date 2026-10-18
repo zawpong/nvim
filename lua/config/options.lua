@@ -79,6 +79,7 @@ opt.undodir = undo_dir .. "//"
 -- UI.
 opt.termguicolors = true
 opt.laststatus = 2
+opt.winbar = ""
 opt.showmode = false
 opt.cmdheight = 1
 opt.showtabline = 1

@@ -107,7 +107,7 @@ assert_contains "$out" "mapleader=[ ]" "options: mapleader is Space"
 # ---------------------------------------------------------------- modules
 
 out="$(runlua "modules" "
-local mods = {'config.options','config.statusline','config.diagnostics','config.treesitter',
+local mods = {'config.options','config.statusline','config.git_context','config.diagnostics','config.treesitter',
   'config.search','config.multicursor','config.images','config.keymaps','config.autocmds','config.lsp'}
 for _, m in ipairs(mods) do
   local ok = pcall(require, m)

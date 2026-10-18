@@ -20,7 +20,8 @@ detected at runtime and never fabricated when running on stable.
     ├── keymaps.lua     general keybindings
     ├── autocmds.lua   editor events (yank highlight, cursor restore, …)
     ├── diagnostics.lua diagnostic display and jump API
-    ├── statusline.lua minimal native statusline
+    ├── statusline.lua single footer statusline with Git context
+    ├── git_context.lua asynchronous Git context provider
     ├── search.lua     <leader>ff/fg/fb/fh (fd/rg/fzf, no plugins)
     ├── lsp.lua        native LSP definitions, attachment, format-on-save
     ├── treesitter.lua parser detection and syntax fallback

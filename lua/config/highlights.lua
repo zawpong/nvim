@@ -246,6 +246,10 @@ function M.apply()
   H("StatusLineDiag", { fg = secondary, bg = surface })
   H("StatusLineError", { fg = err, bg = surface, bold = true })
   H("StatusLineWarn", { fg = warn, bg = surface, bold = true })
+  -- Footer Git context (secondary, visually quieter than filename/mode).
+  H("StatusLineGitBranch", { fg = green, bg = surface, bold = true })
+  H("StatusLineGitDirty", { fg = warn, bg = surface })
+  H("StatusLineGitUntracked", { fg = cyan, bg = surface })
 
   -- LSP semantic token links (best-effort).
   pcall(vim.api.nvim_set_hl, 0, "@lsp.type.function", { link = "@function" })

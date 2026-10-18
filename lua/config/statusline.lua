@@ -90,6 +90,12 @@ function _G.nvim_statusline()
   -- Filename and modified/read-only state.
   parts[#parts + 1] = "%#" .. file_hl .. "# %<%f %m%r"
 
+  -- Repository context (cached; never runs Git on redraw).
+  local git_segment = require("config.git_context").line(buf, active)
+  if git_segment ~= "" then
+    parts[#parts + 1] = "  " .. git_segment
+  end
+
   -- Diagnostics when nonzero.
   local counts = vim.diagnostic.count(buf)
   local e = counts[vim.diagnostic.severity.ERROR] or 0

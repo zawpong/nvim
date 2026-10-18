@@ -5,6 +5,7 @@
 require("config.options")
 require("config.highlights").setup()
 require("config.statusline")
+require("config.git_context").setup()
 require("config.diagnostics")
 require("config.treesitter").setup()
 require("config.search").setup()
