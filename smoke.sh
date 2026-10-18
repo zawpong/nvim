@@ -128,7 +128,7 @@ assert_contains "$out" "OPTIONS_OK" "essential options set (nvim >= 0.11 floor)"
 
 out="$(runlua "commands" "
 local cmds = vim.api.nvim_get_commands({})
-for _, name in ipairs({'SearchFiles','SearchGrep','SearchBuffers','SearchHelp','LspStatus','MulticursorInfo','ImageShow','TSStatus'}) do
+for _, name in ipairs({'SearchFiles','SearchGrep','SearchBuffers','SearchHelp','LspStatus','MulticursorInfo','ImageShow','TSStatus','HighlightStatus'}) do
   if not cmds[name] then print('CMD_FAIL ' .. name); return end
 end
 print('COMMANDS_OK')")"

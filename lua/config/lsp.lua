@@ -83,10 +83,13 @@ local servers = {
 
 ---Enabled names in deterministic order (for :LspStatus).
 local enabled = {}
+---Missing server names (executable not found).
+local missing_servers = {}
 
 -- Track which buffers/clients have completion enabled, for safe teardown.
 M._completion_enabled = {}
 M._inline_enabled = {}
+M._semantic_enabled = {}
 
 ---Enable native LSP completion for a client/buffer (guarded).
 ---@param client_id integer
@@ -192,10 +195,20 @@ function M.status()
     for _, c in ipairs(vim.lsp.get_clients({ bufnr = 0, name = name })) do
       attached[#attached + 1] = tostring(c.id)
     end
-    lines[#lines + 1] = ("%s: enabled%s"):format(
+    local sem = ""
+    for _, c in ipairs(vim.lsp.get_clients({ bufnr = 0, name = name })) do
+      if c.server_capabilities and c.server_capabilities.semanticTokensProvider then
+        sem = " (semantic tokens supported)"
+      end
+    end
+    lines[#lines + 1] = ("%s: enabled%s%s"):format(
       name,
-      #attached > 0 and (" (attached: id %s)"):format(table.concat(attached, ", ")) or ""
+      #attached > 0 and (" (attached: id %s)"):format(table.concat(attached, ", ")) or "",
+      sem
     )
+  end
+  if #missing_servers > 0 then
+    lines[#lines + 1] = "missing servers: " .. table.concat(missing_servers, ", ")
   end
   local cur = vim.lsp.get_clients({ bufnr = 0 })
   if #cur > 0 then
@@ -218,9 +231,12 @@ function M.setup()
       vim.lsp.config(name, def.config)
       vim.lsp.enable(name)
       enabled[#enabled + 1] = name
+    else
+      missing_servers[#missing_servers + 1] = name
     end
   end
 
+  table.sort(missing_servers)
   vim.api.nvim_create_user_command("LspStatus", M.status, { desc = "LSP client status" })
   vim.api.nvim_create_user_command("LspCompletionStatus", function()
     local lines = {}
@@ -291,6 +307,21 @@ function M.setup()
         M._inline_enabled[buf][client.id] = true
       end
 
+      -- Semantic tokens: enable only when the server supports them. They
+      -- complement Tree-sitter highlighting; highlight groups are linked in
+      -- highlights.lua so they do not replace the whole color scheme.
+      if client.server_capabilities
+        and client.server_capabilities.semanticTokensProvider
+        and vim.lsp.semantic_tokens
+        and type(vim.lsp.semantic_tokens.enable) == "function" then
+        pcall(vim.lsp.semantic_tokens.enable, true, {
+          bufnr = buf,
+          client_id = client.id,
+        })
+        M._semantic_enabled[buf] = M._semantic_enabled[buf] or {}
+        M._semantic_enabled[buf][client.id] = true
+      end
+
       -- Format-on-save stays opt-in (vim.g.format_on_save in options.lua).
       -- One autocmd per buffer, scoped to the triggering client.
       if vim.g.format_on_save and client:supports_method("textDocument/formatting") then
@@ -316,8 +347,45 @@ function M.setup()
       local buf = ev.buf
       M.disable_completion(client.id, buf)
       M.disable_inline_completion(client.id, buf)
+      if M._semantic_enabled[buf] then
+        M._semantic_enabled[buf][client.id] = nil
+      end
+      if vim.lsp.semantic_tokens and type(vim.lsp.semantic_tokens.enable) == "function" then
+        pcall(vim.lsp.semantic_tokens.enable, false, {
+          bufnr = buf,
+          client_id = client.id,
+        })
+      end
     end,
   })
 end
+
+
+---Report whether any attached client supports semantic tokens.
+---@param bufnr integer?
+---@return boolean supported, string[] names
+function M.semantic_tokens_supported(bufnr)
+  local names = {}
+  for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr or 0 })) do
+    if client.server_capabilities and client.server_capabilities.semanticTokensProvider then
+      names[#names + 1] = client.name
+    end
+  end
+  return #names > 0, names
+end
+
+---Report whether semantic tokens are enabled for the buffer.
+---@param bufnr integer?
+---@return boolean
+function M.semantic_tokens_enabled(bufnr)
+  bufnr = bufnr or 0
+  local supported = M.semantic_tokens_supported(bufnr)
+  if not supported then
+    return false
+  end
+  local ok, enabled = pcall(vim.lsp.semantic_tokens.is_enabled, { bufnr = bufnr })
+  return ok and enabled == true
+end
+
 
 return M

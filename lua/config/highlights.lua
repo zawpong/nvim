@@ -313,6 +313,32 @@ function M.apply()
   pcall(vim.api.nvim_set_hl, 0, "@lsp.type.decorator", { link = "@function" })
   pcall(vim.api.nvim_set_hl, 0, "@lsp.type.namespace", { link = "@namespace" })
   pcall(vim.api.nvim_set_hl, 0, "@lsp.mod.deprecated", { fg = muted, strikethrough = true })
+
+  -- Additional standard semantic token types/modifiers so LSP semantic
+  -- highlighting complements (rather than flattens) Tree-sitter captures.
+  local lsp_links = {
+    ["@lsp.type.enumMember"] = "@constant",
+    ["@lsp.type.type"] = "@type",
+    ["@lsp.type.typeParameter"] = "@type",
+    ["@lsp.type.event"] = "@property",
+    ["@lsp.type.modifier"] = "@keyword",
+    ["@lsp.type.regexp"] = "@string",
+    ["@lsp.type.macro"] = "@function",
+    ["@lsp.type.decorator"] = "@function",
+    ["@lsp.type.namespace"] = "@namespace",
+    ["@lsp.mod.readonly"] = "@constant",
+    ["@lsp.mod.defaultLibrary"] = "@function.builtin",
+    ["@lsp.mod.declaration"] = {},
+    ["@lsp.mod.definition"] = {},
+    ["@lsp.mod.static"] = {},
+    ["@lsp.mod.async"] = {},
+    ["@lsp.mod.abstract"] = {},
+  }
+  for group, target in pairs(lsp_links) do
+    if type(target) == "string" then
+      pcall(vim.api.nvim_set_hl, 0, group, { link = target })
+    end
+  end
 end
 
 function M.setup()

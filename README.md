@@ -233,6 +233,58 @@ executables are handled without raising errors. Search roots default to the
 project root (found via `.git`/`go.mod`/`Cargo.toml`/`pyproject.toml`
 markers), falling back to the CWD outside a Git repository.
 
+## Tree-sitter parsers (optional, never auto-downloaded)
+
+Neovim ships parsers and highlight queries for only a small core set:
+`c`, `lua`, `markdown`, `markdown_inline`, `query`, `vim`, `vimdoc`. Every
+other language needs **both** a parser (`.so`) and a highlight query
+(`highlights.scm`) to be present on the system. This config never downloads
+either at startup; missing languages fall back to native Vim `:syntax`
+highlighting.
+
+Prioritized languages and their expected parser/query names:
+
+| Language | Parser | Filetypes | Notes |
+|---|---|---|---|
+| Go | `go` | `go` | parser from site; query bundled in this repo |
+| Lua | `lua` | `lua` | shipped with Neovim |
+| Python | `python` | `python` | parser/query from site |
+| Rust | `rust` | `rust` | parser from site; query bundled in this repo |
+| JavaScript/TypeScript | `javascript` / `typescript` / `tsx` | `javascript`, `typescript`, `tsx` | parser missing in this environment by default |
+| JSON | `json` | `json`, `jsonc` | parser/query from site |
+| YAML | `yaml` | `yaml`, `yml` | parser missing in this environment by default |
+| Bash | `bash` | `bash`, `sh`, `zsh` | parser missing in this environment by default |
+| HTML | `html` | `html` | parser missing in this environment by default |
+| CSS | `css` | `css`, `scss` | parser missing in this environment by default |
+| Markdown | `markdown` | `markdown` | shipped with Neovim |
+
+Install or update parsers explicitly (system packages or manual files):
+
+1. System packages (Arch example; package names vary by distro):
+   ```sh
+   sudo pacman -S tree-sitter tree-sitter-c tree-sitter-lua      tree-sitter-markdown tree-sitter-query tree-sitter-vim tree-sitter-vimdoc
+   ```
+   Only the languages above have official packages today; others must be
+   installed manually (step 2).
+
+2. Manual parser files (no plugins, no network at startup):
+   - Place the compiled parser as
+     `~/.local/share/nvim/site/parser/<lang>.so`
+     (Neovim loads parsers from `parser/` on the runtime path).
+   - Place highlight queries as
+     `~/.local/share/nvim/site/queries/<lang>/highlights.scm`
+     (and `injections.scm` where applicable).
+   - Parsers can be built from upstream `tree-sitter-<lang>` repositories
+     with the `tree-sitter` CLI, or copied from a trusted nvim-treesitter
+     installation. This config never downloads them.
+
+3. Verify with `:TSStatus` (installed vs. missing parsers) and
+   `:HighlightStatus` (current buffer source, parser/query availability,
+   attached LSP semantic-token support).
+
+When a parser or query is missing, the filetype keeps native Vim syntax
+highlighting. `:HighlightStatus` reports this honestly.
+
 ## LSP servers (install separately)
 
 | Language | Package (Arch) | notes |
