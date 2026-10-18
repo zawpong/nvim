@@ -88,7 +88,25 @@ local function fuzzy_filter(query, candidates)
     local out = vim.fn.systemlist({ "fzf", "--filter", query }, candidates)
     local err = vim.v.shell_error
     if err <= 1 and #out > 0 then
-      return out
+      -- fzf is a Go tool: it decodes its input as UTF-8 and silently
+      -- replaces invalid bytes with U+FFFD. A mangled row would break
+      -- result selection (e.g. a non-UTF-8 filename that exists on disk),
+      -- so only accept output where every row is an exact candidate.
+      local known = {}
+      for _, c in ipairs(candidates) do
+        known[c] = true
+      end
+      local faithful = true
+      for _, row in ipairs(out) do
+        if not known[row] then
+          faithful = false
+          break
+        end
+      end
+      if faithful then
+        return out
+      end
+      -- fall through to the byte-faithful native engine
     elseif err == 1 then
       return {}
     end
@@ -113,6 +131,13 @@ local function close_picker()
     pcall(function() s.job:kill("term") end)
     s.job = nil
   end
+  if s.timer then
+    pcall(function()
+      s.timer:stop()
+      s.timer:close()
+    end)
+    s.timer = nil
+  end
   if s.preview_win and vim.api.nvim_win_is_valid(s.preview_win) then
     vim.api.nvim_win_close(s.preview_win, true)
   end
@@ -125,6 +150,14 @@ local function close_picker()
   if s.on_close then
     pcall(s.on_close)
   end
+  vim.schedule(function()
+    if s.buf and vim.api.nvim_buf_is_valid(s.buf) then
+      pcall(vim.api.nvim_buf_delete, s.buf, { force = true })
+    end
+    if s.preview_buf and vim.api.nvim_buf_is_valid(s.preview_buf) then
+      pcall(vim.api.nvim_buf_delete, s.preview_buf, { force = true })
+    end
+  end)
 end
 
 local function render(s)
@@ -141,6 +174,10 @@ local function render(s)
     lines[#lines + 1] = ("  ... %d more"):format(#results - n)
   end
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  -- Screen repaint: while the picker blocks in getcharstr(), buffer changes
+  -- are not flushed to the TUI automatically (no repaint between keypresses
+  -- on some terminals, e.g. under tmux) or the preview updates never show.
+  vim.cmd("redraw")
 end
 
 local function render_preview(s)
@@ -187,7 +224,7 @@ local function accept(s)
   local item = s.results[s.selected]
   close_picker()
   if s.accept_fn then
-    pcall(s.accept_fn, item)
+    s.accept_fn(item)
   end
 end
 
@@ -214,8 +251,12 @@ local function open_picker(spec)
   })
   local preview_buf = vim.api.nvim_create_buf(false, true)
   local preview_width = math.max(20, math.min(50, math.floor(vim.o.columns * 0.3)))
+  -- Clamp the preview inside the editor: an out-of-bounds position leaves
+  -- the preview off-screen (or clipped) on narrow panes.
+  local preview_col = math.min(col + width + 2, math.max(0, vim.o.columns - preview_width))
+  local preview_row = math.max(0, row)
   local preview_win = vim.api.nvim_open_win(preview_buf, false, {
-    relative = "editor", row = row, col = col + width + 2, width = preview_width, height = height,
+    relative = "editor", row = preview_row, col = preview_col, width = preview_width, height = height,
     style = "minimal", border = "rounded",
   })
   if not win or not preview_win then
@@ -225,6 +266,8 @@ local function open_picker(spec)
   local s = {
     win = win,
     preview_win = preview_win,
+    buf = buf,
+    preview_buf = preview_buf,
     origin_win = vim.api.nvim_get_current_win(),
     candidates = spec.candidates or {},
     results = {},
@@ -241,6 +284,11 @@ local function open_picker(spec)
   render(s)
   render_preview(s)
   vim.api.nvim_set_current_win(win)
+  -- Force the TUI to paint both floats before the blocking input loop.
+  -- Without this, the two-float layout plus a pending getcharstr() leaves
+  -- the screen stale on some terminals (tmux): the floats are open and
+  -- focused but never appear until the first keypress is consumed.
+  vim.cmd("redraw")
 
   -- Type-ahead loop. Key bytes: 27 Esc, 13 Enter, 8/127 Backspace,
   -- 10 = Ctrl-J next, 11 = Ctrl-K prev, 14/16 = Ctrl-N/P, 9 Tab prev.
@@ -249,7 +297,13 @@ local function open_picker(spec)
     if not ok or picker ~= s then
       return -- closed by accept/cancel on another path
     end
-    local b = ch:byte(1)
+    if #ch > 1 then
+      -- Multi-byte keycodes (arrow keys, function keys, <C-S-…>) are not
+      -- picker keys. Ignoring them prevents the leading ESC byte of e.g.
+      -- <Up> from being read as the Esc-cancel key.
+      goto continue
+    end
+    local b = ch:byte()
     if b == 27 then
       close_picker()
       return
@@ -282,6 +336,7 @@ local function open_picker(spec)
         pcall(s.on_query, s.query)
       end
     end
+    ::continue::
   end
 end
 
@@ -378,7 +433,16 @@ function M.file_candidates(root, cb)
         end
       end
       local tool_ok = res.code == 0 or #out > 0
-      cb(out, tool_ok and (cmd[1] == "fd" and "fd" or "rg --files") or "failed")
+      local tool_name = tool_ok and (cmd[1] == "fd" and "fd" or "rg --files") or "failed"
+      -- The vim.system callback runs in a fast event context, where UI APIs
+      -- (option reads, floating windows, focus switches) raise E5560.
+      -- Deferred the handoff so `cb` runs on the main thread.
+      vim.schedule(function()
+        if not running or picker then
+          return -- superseded by a new invocation
+        end
+        cb(out, tool_name)
+      end)
     end)
     return
   end
@@ -460,13 +524,16 @@ function M.live_grep()
     return
   end
   local root = u.project_root(0)
-  local base = { "rg", "--vimgrep", "--color", "never", "--smart-case", "--no-messages", "--" }
+  -- `--` (end-of-options) must come AFTER the toggles and globs; placing it
+  -- before them made rg read --hidden/--glob as paths (exit 2, no output).
+  local base = { "rg", "--vimgrep", "--color", "never", "--smart-case", "--no-messages" }
   if M.opts.hidden then
     base[#base + 1] = "--hidden"
     base[#base + 1] = "--glob"
     base[#base + 1] = "!.git/**"
   end
   add_excludes(base, false)
+  base[#base + 1] = "--"
 
   local job = nil
 
@@ -485,21 +552,25 @@ function M.live_grep()
       return
     end
     job = vim.system(vim.list_extend(vim.deepcopy(base), { query }), { cwd = root, text = true }, function(res)
-      job = nil
-      local s = picker
-      if not s or s.query ~= query then
-        return -- picker closed, or a newer query superseded us
-      end
-      local items = {}
-      for row in vim.gsplit(res.stdout or "", "\n", { plain = true }) do
-        if row ~= "" then
-          items[#items + 1] = row
+      -- Job callbacks are fast-event contexts: defer state mutation so
+      -- buffer/window APIs do not raise E5560.
+      vim.schedule(function()
+        job = nil
+        local s = picker
+        if not s or s.query ~= query then
+          return -- picker closed, or a newer query superseded us
         end
-      end
-      s.candidates = items
-      s.selected = 1
-      render(s)
-      render_preview(s)
+        local items = {}
+        for row in vim.gsplit(res.stdout or "", "\n", { plain = true }) do
+          if row ~= "" then
+            items[#items + 1] = row
+          end
+        end
+        s.candidates = items
+        s.selected = 1
+        render(s)
+        render_preview(s)
+      end)
     end)
     if picker then
       picker.job = job -- so close_picker kills an in-flight search
@@ -585,9 +656,17 @@ function M.buffers_search()
       local bufnr = item:match("^(%d+) ")
       if bufnr then
         vim.api.nvim_set_current_buf(tonumber(bufnr))
-      else
-        vim.cmd({ cmd = "buffer", args = { vim.fn.fnameescape(item) } })
+        return
       end
+      -- Exact-name lookup first: `:buffer` treats a leading digit as a
+      -- buffer number, so a file named "123 x.txt" would break that path.
+      for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_valid(b) and vim.api.nvim_buf_get_name(b) == item then
+          vim.api.nvim_set_current_buf(b)
+          return
+        end
+      end
+      vim.cmd({ cmd = "buffer", args = { item } })
     end,
     preview_fn = function(item)
       if not item or item:match("^(%d+) ") then
@@ -636,6 +715,17 @@ function M.setup()
       fn()
     end, { desc = name })
   end
+  -- The documented <leader> keymaps (leader is Space, set in options.lua).
+  -- Without these the pickers were only reachable through user commands.
+  local keymaps = {
+    { "n", "<leader>ff", M.find_files, "Fuzzy file search" },
+    { "n", "<leader>fg", M.live_grep, "Live content search" },
+    { "n", "<leader>fb", M.buffers_search, "Search open buffers" },
+    { "n", "<leader>fh", M.help_search, "Search help topics" },
+  }
+  for _, m in ipairs(keymaps) do
+    vim.keymap.set(m[1], m[2], m[3], { desc = m[4], silent = true })
+  end
 end
 
 -- Expose internals for tests (smoke.sh drives them headlessly).
@@ -643,5 +733,14 @@ M._open_picker = open_picker
 M._fuzzy_filter = fuzzy_filter
 M._close_picker = close_picker
 M._parse_vimgrep = parse_vimgrep
+---Snapshot of the live picker (nil when closed); lets tests observe the
+---interactive loop instead of only its final effects.
+M._state = function()
+  local s = picker
+  if not s then
+    return nil
+  end
+  return { query = s.query, results = s.results, selected = s.selected }
+end
 
 return M

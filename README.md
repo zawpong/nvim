@@ -128,6 +128,20 @@ Search pickers (all four `<leader>f?` flows): type to fuzzy-filter
 (`fzf --filter` when fzf is installed, otherwise the native `matchfuzzy`),
 `Enter` accepts, `Esc` cancels, `Ctrl-J`/`Ctrl-K` (or Ctrl-N/P) move the
 selection, Backspace edits the query (including UTF-8), `Tab` moves back.
+Arrow keys and other multi-byte keys are deliberately ignored so a stray
+`<Up>` (whose ESC byte would otherwise cancel the picker) cannot close it:
+the picker stays open and the keys do nothing. The floats are force-repainted
+(`redraw`) before the input loop and after every query change, because without
+that some terminals (verified under tmux/xterm-256color) never paint the
+two-float layout while `getcharstr()` blocks. The preview pane is clamped
+inside the editor grid so narrow panes get a visible preview instead of an
+off-screen one.
+
+Known fuzzy-engine caveat: `fzf --filter` is a Go program that decodes its
+input as UTF-8 and silently rewrites invalid byte sequences as U+FFFD. The
+picker detects unfaithful output rows (not byte-identical to a real
+candidate) and falls back to the byte-faithful native `matchfuzzy` engine, so
+filenames that exist on disk survive end-to-end even when non-UTF-8.
 
 Excludes (configurable via `lua/config/search.lua#M.opts`):
 `.git/`, `node_modules/`, `build/`, `dist/`, `out/`, `target/`, `vendor/`,
@@ -182,10 +196,23 @@ blog posts):
 * the API may change until the EXPERIMENTAL marker is dropped.
 
 This config ships `:ImageShow [path]` (defaults to the file under the
-cursor) and `:ImageClear`. On a terminal/build where the capability is
-absent they explain exactly why, and do nothing else. There is no plugin,
-no external converter, and no fragile custom renderer. On 0.12 stable the
-commands report the honest limitation.
+cursor) and `:ImageClear`. Availability is decided at call time by the
+upstream capability probe (`vim.ui.img._supported()`): the control flow never
+guesses from `TERM` strings. PNG files are checked for the PNG signature,
+capped at 12 MiB of embedded bytes, and placed at the cursor's screen
+position; `:ImageClear` deletes the tracked placement id.
+
+Verified behaviors in this environment (Neovim 0.13 nightly `0.13.0-dev-
+1895`, kitty 0.48.2, Wayland/Hyprland):
+
+* inside **kitty outside tmux**, `:ImageShow` renders real pixels — verified
+  end-to-end with a uniquely-colored 220×90 PNG displayed at the cursor and
+  measured from screen pixels (19800/19800 exact-color pixels after
+  `:ImageShow`, 0 after `:ImageClear`),
+* inside **tmux** on the same machine, the probe times out because upstream
+  `vim.ui.img` implements no tmux passthrough; the command prints the exact
+  reason (including `TERM`/`TERM_PROGRAM`) and shows nothing,
+* on **0.12 stable**, the commands report the honest limitation.
 
 If you run Kitty/Ghostty through tmux and want images anyway, that is an
 upstream capability gap — not something this config papers over.
@@ -235,16 +262,23 @@ are left running at rest.
 ## Testing
 
 ```sh
-./smoke.sh             # 31 automated headless tests (verbatim results)
+./smoke.sh             # 41 automated headless tests (verbatim results)
 ./smoke.sh --verbose   # also print raw Neovim output per test
 ./install.sh --check
 ```
 
 Automated coverage: shell + Lua syntax, config boot, module loading, options,
-user commands, search fixtures, picker interactions, content-search
-navigation (file:line:col), fallback when fd/rg are missing, LSP loading
-without servers, multicursor key honesty, image capability honesty, and
-treesitter fallbacks.
+user commands, keymap registration, real-keymap end-to-end flows
+(`<leader>ff` opens the picker from async candidates and accepts the right
+file; `<leader>fg` lands the cursor on the match line; `<leader>fb` opens and
+`Esc` cancels), picker special-character filenames (brackets/quotes/colons
+parse and open), the "No files found" empty-project message, non-UTF-8
+candidate rendering and byte-faithful acceptance, image capability honesty
+(inside tmux the message names the upstream no-passthrough limitation, on
+stable the missing build), image file validation (missing/invalid PNG
+rejected) and the placement-id lifecycle, fallback when fd/rg are missing,
+LSP loading without servers, multicursor key honesty, and treesitter
+fallbacks.
 
 Manual UI checks (never automatable headlessly — do not trust anyone who
 says otherwise):
