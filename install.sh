@@ -288,7 +288,7 @@ if [ "$CONFIG_SRC" != "$CONFIG_DST" ]; then
     fi
   fi
   run mkdir -p "$CONFIG_DST/lua/config"
-  for f in init.lua README.md install.sh uninstall.sh smoke.sh; do
+  for f in init.lua README.md LICENSE install.sh uninstall.sh smoke.sh; do
     [ -f "$CONFIG_SRC/$f" ] && run cp "$CONFIG_SRC/$f" "$CONFIG_DST/$f"
   done
   run cp "$CONFIG_SRC"/lua/config/*.lua "$CONFIG_DST/lua/config/"
@@ -300,7 +300,7 @@ if [ "$CONFIG_SRC" != "$CONFIG_DST" ]; then
   # Manifest: exact files this project installed; uninstall.sh reads it.
   {
     printf 'backup=%s\n' "${BACKUP:-none}"
-    for f in init.lua README.md install.sh uninstall.sh smoke.sh; do
+    for f in init.lua README.md LICENSE install.sh uninstall.sh smoke.sh; do
       [ -f "$CONFIG_SRC/$f" ] && printf 'file=%s\n' "$f"
     done
     for f in "$CONFIG_SRC"/lua/config/*.lua; do
@@ -314,7 +314,7 @@ else
   log "source and destination are the same directory ($CONFIG_SRC); installing in place"
   {
     printf 'backup=none\n'
-    printf 'file=init.lua\nfile=README.md\nfile=install.sh\nfile=uninstall.sh\nfile=smoke.sh\n'
+    printf 'file=init.lua\nfile=README.md\nfile=LICENSE\nfile=install.sh\nfile=uninstall.sh\nfile=smoke.sh\n'
     for f in "$CONFIG_SRC"/lua/config/*.lua; do
       [ -f "$f" ] && printf 'file=lua/config/%s\n' "$(basename "$f")"
     done
