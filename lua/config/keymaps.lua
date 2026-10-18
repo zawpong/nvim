@@ -96,10 +96,10 @@ map("n", "<leader>gl", function() git_term("git log --oneline --decorate -20") e
 -- OpenCode terminal.
 map("n", "<leader>ai", function()
   if vim.fn.executable("opencode") == 1 then
-    vim.cmd("split")
+    vim.cmd("vsplit")
     vim.cmd("terminal opencode")
   else
     vim.notify("opencode is not installed", vim.log.levels.INFO)
-    vim.cmd("split | terminal")
+    vim.cmd("vsplit | terminal")
   end
 end, { desc = "OpenCode terminal" })
