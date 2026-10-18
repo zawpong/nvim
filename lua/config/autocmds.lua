@@ -1,18 +1,17 @@
--- Autocommands.
-
-local group = vim.api.nvim_create_augroup("nvim_config", { clear = true })
+-- Editor events. LSP wiring lives in lsp.lua; this file is not shared
+-- state with it beyond the single augroup used by each module.
 
 -- Highlight yanked text.
 vim.api.nvim_create_autocmd("TextYankPost", {
-  group = group,
+  group = vim.api.nvim_create_augroup("nvim_config_autocmds", { clear = true }),
   callback = function()
     vim.highlight.on_yank({ higroup = "IncSearch", timeout = 150 })
   end,
 })
 
--- Restore cursor position.
+-- Restore cursor position (only when Nvim remembers one).
 vim.api.nvim_create_autocmd("BufReadPost", {
-  group = group,
+  group = vim.api.nvim_create_augroup("nvim_config_cursor", { clear = true }),
   callback = function(ev)
     local mark = vim.api.nvim_buf_get_mark(ev.buf, '"')
     local line_count = vim.api.nvim_buf_line_count(ev.buf)
@@ -42,7 +41,7 @@ local indent_settings = {
 }
 
 vim.api.nvim_create_autocmd("FileType", {
-  group = group,
+  group = vim.api.nvim_create_augroup("nvim_config_indent", { clear = true }),
   callback = function(ev)
     local s = indent_settings[ev.match]
     if s then
@@ -54,17 +53,15 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
--- Tree-sitter highlighting with graceful fallback to traditional syntax.
+-- Tree-sitter highlighting with a guaranteed syntax-highlighting fallback.
 vim.api.nvim_create_autocmd("FileType", {
-  group = group,
-  callback = function(ev)
-    pcall(vim.treesitter.start, ev.buf)
-  end,
+  group = vim.api.nvim_create_augroup("nvim_config_treesitter", { clear = true }),
+  callback = require("config.treesitter").autocmd_callback(),
 })
 
 -- Trim trailing whitespace on save, except where meaningful.
 vim.api.nvim_create_autocmd("BufWritePre", {
-  group = group,
+  group = vim.api.nvim_create_augroup("nvim_config_ws", { clear = true }),
   callback = function(ev)
     local ft = vim.bo[ev.buf].filetype
     if ft == "markdown" or ft == "diff" or ft == "gitcommit" then
@@ -73,46 +70,5 @@ vim.api.nvim_create_autocmd("BufWritePre", {
     local view = vim.fn.winsaveview()
     vim.cmd("silent! %s/\\s\\+$//e")
     vim.fn.winrestview(view)
-  end,
-})
-
--- LSP attach: keymaps, completion, optional format-on-save.
-vim.api.nvim_create_autocmd("LspAttach", {
-  group = group,
-  callback = function(ev)
-    local client = vim.lsp.get_client_by_id(ev.data.client_id)
-    if not client then
-      return
-    end
-    local buf = ev.buf
-
-    local function bmap(mode, lhs, rhs, desc)
-      vim.keymap.set(mode, lhs, rhs, { buffer = buf, desc = desc, silent = true })
-    end
-
-    bmap("n", "gd", vim.lsp.buf.definition, "Go to definition")
-    bmap("n", "gD", vim.lsp.buf.declaration, "Go to declaration")
-    bmap("n", "gr", vim.lsp.buf.references, "References")
-    bmap("n", "gi", vim.lsp.buf.implementation, "Implementation")
-    bmap("n", "gt", vim.lsp.buf.type_definition, "Type definition")
-    bmap("n", "K", vim.lsp.buf.hover, "Hover documentation")
-    bmap("n", "<leader>rn", vim.lsp.buf.rename, "Rename symbol")
-    bmap("n", "<leader>ca", vim.lsp.buf.code_action, "Code action")
-    bmap("n", "<leader>ds", vim.lsp.buf.document_symbol, "Document symbols")
-    bmap("n", "<leader>ws", vim.lsp.buf.workspace_symbol, "Workspace symbols")
-
-    if client:supports_method("textDocument/completion") then
-      vim.lsp.completion.enable(true, client.id, buf, { autotrigger = true })
-    end
-
-    if vim.g.format_on_save and client:supports_method("textDocument/formatting") then
-      vim.api.nvim_create_autocmd("BufWritePre", {
-        group = group,
-        buffer = buf,
-        callback = function()
-          vim.lsp.buf.format({ bufnr = buf, id = client.id, timeout_ms = 1000 })
-        end,
-      })
-    end
   end,
 })

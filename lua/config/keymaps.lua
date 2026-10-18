@@ -1,7 +1,14 @@
 -- Keymaps: small, coherent, mnemonic.
+--
+-- Multiplexing with native multicursor (0.13+):
+--   * CTRL-L clears multicursor cursors, so we map `<C-l>` for window
+--     navigation ONLY when native multicursor is not present (on 0.12 stable
+--     CTRL-L has just its legacy redraw meaning, which we don't need).
+--   * Q, zq, gQ, q= are left entirely native; nothing else here reuses them.
 
 local map = vim.keymap.set
-local diagnostics = require("config.diagnostics")
+local M = require("config.diagnostics")
+local u = require("config.utils")
 
 -- Save / quit.
 map("n", "<leader>w", "<cmd>w<CR>", { desc = "Save file" })
@@ -14,6 +21,7 @@ map("n", "<leader>e", "<cmd>Lexplore<CR>", { desc = "Toggle file explorer" })
 -- Buffers.
 map("n", "<leader>bn", "<cmd>bnext<CR>", { desc = "Next buffer" })
 map("n", "<leader>bp", "<cmd>bprevious<CR>", { desc = "Previous buffer" })
+map("n", "<leader>bb", "<cmd>e #<CR>", { desc = "Alternate buffer" })
 
 local function delete_buffer_safe()
   local buf = vim.api.nvim_get_current_buf()
@@ -36,18 +44,20 @@ map("n", "<leader>sc", "<cmd>close<CR>", { desc = "Close window" })
 map("n", "<C-h>", "<C-w>h", { desc = "Move to left window" })
 map("n", "<C-j>", "<C-w>j", { desc = "Move to lower window" })
 map("n", "<C-k>", "<C-w>k", { desc = "Move to upper window" })
-map("n", "<C-l>", "<C-w>l", { desc = "Move to right window" })
+if not u.has_native_multicursor() then
+  map("n", "<C-l>", "<C-w>l", { desc = "Move to right window" })
+end
 
 -- Terminal.
 map("n", "<leader>t", "<cmd>terminal<CR>", { desc = "Open terminal" })
 map("t", "<Esc><Esc>", "<C-\\><C-n>", { desc = "Terminal to normal mode" })
 
 -- Diagnostics.
-map("n", "[d", function() vim.diagnostic.goto_prev() end, { desc = "Previous diagnostic" })
-map("n", "]d", function() vim.diagnostic.goto_next() end, { desc = "Next diagnostic" })
+map("n", "[d", function() M.jump("prev") end, { desc = "Previous diagnostic" })
+map("n", "]d", function() M.jump("next") end, { desc = "Next diagnostic" })
 map("n", "<leader>d", function() vim.diagnostic.open_float() end, { desc = "Diagnostic details" })
 map("n", "<leader>dl", function() vim.diagnostic.setloclist() end, { desc = "Diagnostics to location list" })
-map("n", "<leader>dv", diagnostics.toggle_virtual_text, { desc = "Toggle diagnostic virtual text" })
+map("n", "<leader>dv", M.toggle_virtual_text, { desc = "Toggle diagnostic virtual text" })
 
 -- Quickfix / location list.
 map("n", "[q", "<cmd>silent! cprev<CR>", { desc = "Previous quickfix" })
@@ -62,8 +72,9 @@ map("n", "<leader>lc", "<cmd>lclose<CR>", { desc = "Close location list" })
 -- Search highlight.
 map("n", "<Esc>", "<cmd>nohlsearch<CR>", { desc = "Clear search highlight" })
 
--- Formatting (LSP).
-map("n", "<leader>f", function()
+-- Fuzzy search lives in search.lua (<leader>ff / fg / fb / fh).
+-- Format lives under <leader>= so it does not collide with <leader>ff prefix.
+map("n", "<leader>=", function()
   local clients = vim.lsp.get_clients({ bufnr = 0 })
   if #clients == 0 then
     vim.notify("No LSP client attached", vim.log.levels.INFO)
@@ -74,7 +85,8 @@ end, { desc = "Format buffer (LSP)" })
 
 -- Git helpers (external commands in terminal split).
 local function git_term(cmd)
-  vim.cmd("split | terminal " .. cmd)
+  vim.cmd("split")
+  vim.cmd("terminal " .. cmd)
 end
 map("n", "<leader>gs", function() git_term("git status") end, { desc = "Git status" })
 map("n", "<leader>gd", function() git_term("git diff") end, { desc = "Git diff" })
@@ -92,7 +104,8 @@ map("n", "<leader>ai", function()
     end
   end
   if chosen then
-    vim.cmd("split | terminal " .. chosen)
+    vim.cmd("split")
+    vim.cmd("terminal " .. chosen)
   else
     vim.notify("No AI CLI found; open terminal and run your tool", vim.log.levels.INFO)
     vim.cmd("split | terminal")

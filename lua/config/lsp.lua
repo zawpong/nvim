@@ -1,53 +1,175 @@
--- Native LSP configuration (Neovim 0.11+ API).
+-- Native LSP configuration (vim.lsp.config / vim.lsp.enable; 0.11+ API).
+--
+-- Policy:
+--   * Server executables are detected BEFORE enabling; nothing is downloaded
+--     at startup, and missing servers are simply not enabled.
+--   * Format-on-save stays OFF by default (vim.g.format_on_save = false in
+--     options.lua); buffer formatting is available via <leader>=.
+--   * All LSP-side autocmd registration happens here, exactly once.
+--
+-- Server installation is documented in README.md (separate from editor
+-- installation).
 
-local function has(cmd)
-  return vim.fn.executable(cmd) == 1
+local u = require("config.utils")
+
+local M = {}
+
+---Server definitions: { config = {...}, cmd_names = {exe, ...} }.
+---Enable when every cmd_names entry is an executable.
+local servers = {
+  lua_ls = {
+    cmd_names = { "lua-language-server" },
+    config = {
+      filetypes = { "lua" },
+      root_markers = { { ".luarc.json", ".luarc.jsonc" }, ".git" },
+      settings = {
+        Lua = {
+          runtime = { version = "LuaJIT" },
+          diagnostics = { globals = { "vim" } },
+          workspace = { checkThirdParty = false },
+          telemetry = { enable = false },
+        },
+      },
+    },
+  },
+  gopls = {
+    cmd_names = { "gopls" },
+    config = {
+      filetypes = { "go", "gomod", "gowork", "gotmpl" },
+      root_markers = { "go.mod", "go.work", ".git" },
+    },
+  },
+  basedpyright = {
+    cmd_names = { "basedpyright-langserver" },
+    config = {
+      filetypes = { "python" },
+      root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git" },
+      settings = {
+        basedpyright = {
+          analysis = { autoSearchPaths = true, useLibraryCodeForTypes = true },
+        },
+      },
+    },
+  },
+  ruff = {
+    -- Fallback python server when basedpyright is absent (fast, common).
+    cmd_names = { "ruff" },
+    config = {
+      filetypes = { "python" },
+      root_markers = { "pyproject.toml", ".git" },
+    },
+  },
+  rust_analyzer = {
+    cmd_names = { "rust-analyzer" },
+    config = {
+      filetypes = { "rust" },
+      root_markers = { "Cargo.toml", ".git" },
+    },
+  },
+  clangd = {
+    cmd_names = { "clangd" },
+    config = {
+      cmd = { "clangd", "--background-index" },
+      filetypes = { "c", "cpp", "objc", "objcpp" },
+      root_markers = { "compile_commands.json", ".git" },
+    },
+  },
+}
+
+---Enabled names in deterministic order (for :LspStatus).
+local enabled = {}
+
+function M.attached_clients(bufnr)
+  return vim.lsp.get_clients({ bufnr = bufnr or 0 })
 end
 
-vim.lsp.config("lua_ls", {
-  cmd = { "lua-language-server" },
-  filetypes = { "lua" },
-  root_markers = { { ".luarc.json", ".luarc.jsonc" }, ".git" },
-  settings = {
-    Lua = {
-      runtime = { version = "LuaJIT" },
-      diagnostics = { globals = { "vim" } },
-      workspace = { checkThirdParty = false },
-      telemetry = { enable = false },
-    },
-  },
-})
-if has("lua-language-server") then vim.lsp.enable("lua_ls") end
+---`:LspStatus` — which servers are enabled for this session, and which are
+---attached to the current buffer; lists enabled-but-not-current servers to
+---help debug why a server did not attach.
+function M.status()
+  local lines = {}
+  if #enabled == 0 then
+    lines[#lines + 1] = "no LSP servers enabled (executables not on PATH)"
+  end
+  for _, name in ipairs(enabled) do
+    local attached = {}
+    for _, c in ipairs(vim.lsp.get_clients({ bufnr = 0, name = name })) do
+      attached[#attached + 1] = tostring(c.id)
+    end
+    lines[#lines + 1] = ("%s: enabled%s"):format(
+      name,
+      #attached > 0 and (" (attached: id %s)"):format(table.concat(attached, ", ")) or ""
+    )
+  end
+  local cur = vim.lsp.get_clients({ bufnr = 0 })
+  if #cur > 0 then
+    lines[#lines + 1] = ("current buffer: %d client(s)"):format(#cur)
+  end
+  vim.notify(table.concat(lines, "\n"))
+end
 
-vim.lsp.config("gopls", {
-  cmd = { "gopls" },
-  filetypes = { "go", "gomod", "gowork", "gotmpl" },
-  root_markers = { "go.mod", "go.work", ".git" },
-})
-if has("gopls") then vim.lsp.enable("gopls") end
+---Per-buffer LSP behavior, registered exactly once per attach.
+function M.setup()
+  for name, def in pairs(servers) do
+    local ok = true
+    for _, exe in ipairs(def.cmd_names) do
+      if not u.has(exe) then
+        ok = false
+        break
+      end
+    end
+    if ok then
+      vim.lsp.config(name, def.config)
+      vim.lsp.enable(name)
+      enabled[#enabled + 1] = name
+    end
+  end
 
-vim.lsp.config("basedpyright", {
-  cmd = { "basedpyright-langserver", "--stdio" },
-  filetypes = { "python" },
-  root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git" },
-  settings = {
-    basedpyright = {
-      analysis = { autoSearchPaths = true, useLibraryCodeForTypes = true },
-    },
-  },
-})
-if has("basedpyright-langserver") then vim.lsp.enable("basedpyright") end
+  vim.api.nvim_create_user_command("LspStatus", M.status, { desc = "LSP client status" })
 
-vim.lsp.config("rust_analyzer", {
-  cmd = { "rust-analyzer" },
-  filetypes = { "rust" },
-  root_markers = { "Cargo.toml", ".git" },
-})
-if has("rust-analyzer") then vim.lsp.enable("rust_analyzer") end
+  local format_group = vim.api.nvim_create_augroup("nvim_config_lsp_format", { clear = true })
 
-vim.lsp.config("clangd", {
-  cmd = { "clangd", "--background-index" },
-  filetypes = { "c", "cpp", "objc", "objcpp" },
-  root_markers = { "compile_commands.json", ".git" },
-})
-if has("clangd") then vim.lsp.enable("clangd") end
+  vim.api.nvim_create_autocmd("LspAttach", {
+    group = vim.api.nvim_create_augroup("nvim_config_lsp_attach", { clear = true }),
+    callback = function(ev)
+      local client = vim.lsp.get_client_by_id(ev.data.client_id)
+      if not client then
+        return
+      end
+      local buf = ev.buf
+
+      local function bmap(mode, lhs, rhs, desc)
+        vim.keymap.set(mode, lhs, rhs, { buffer = buf, desc = desc, silent = true })
+      end
+
+      bmap("n", "gd", vim.lsp.buf.definition, "Go to definition")
+      bmap("n", "gD", vim.lsp.buf.declaration, "Go to declaration")
+      bmap("n", "gr", vim.lsp.buf.references, "References")
+      bmap("n", "gi", vim.lsp.buf.implementation, "Implementation")
+      bmap("n", "gt", vim.lsp.buf.type_definition, "Type definition")
+      bmap("n", "K", vim.lsp.buf.hover, "Hover documentation")
+      bmap("n", "<leader>rn", vim.lsp.buf.rename, "Rename symbol")
+      bmap("n", "<leader>ca", vim.lsp.buf.code_action, "Code action")
+      bmap("n", "<leader>ds", vim.lsp.buf.document_symbol, "Document symbols")
+      bmap("n", "<leader>ws", vim.lsp.buf.workspace_symbol, "Workspace symbols")
+
+      if client:supports_method("textDocument/completion") then
+        vim.lsp.completion.enable(true, client.id, buf, { autotrigger = true })
+      end
+
+      -- Format-on-save stays opt-in (vim.g.format_on_save in options.lua).
+      -- One autocmd per buffer, scoped to the triggering client.
+      if vim.g.format_on_save and client:supports_method("textDocument/formatting") then
+        vim.api.nvim_create_autocmd("BufWritePre", {
+          group = format_group,
+          buffer = buf,
+          callback = function()
+            vim.lsp.buf.format({ bufnr = buf, id = client.id, timeout_ms = 1000 })
+          end,
+        })
+      end
+    end,
+  })
+end
+
+return M

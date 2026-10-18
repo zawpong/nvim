@@ -56,7 +56,8 @@ opt.wildmode = "longest:full,full"
 opt.updatetime = 300
 opt.timeoutlen = 400
 
--- Persistent undo, swap and backup directories.
+-- Persistent undo, swap and backup directories (in Nvim's state dir, so they
+-- never pollute the working tree).
 local state = vim.fn.stdpath("state")
 local backup_dir = state .. "/backup"
 local swap_dir = state .. "/swap"
@@ -80,10 +81,30 @@ opt.termguicolors = true
 opt.laststatus = 2
 opt.showmode = false
 opt.cmdheight = 1
-opt.signcolumn = "yes"
 
--- Clipboard: requires a provider such as wl-clipboard on Wayland.
-opt.clipboard = "unnamedplus"
+-- Floating window border: the 'winborder' option exists in 0.12+.
+pcall(function()
+  opt.winborder = "rounded"
+end)
+
+-- Clipboard: 'unnamedplus' shares the system clipboard when a provider
+-- (wl-clipboard on Wayland, pbcopy on macOS, OSC 52-capable terminal) exists.
+-- Capability detection rather than OS-name guessing: if no provider is found
+-- (common in SSH/TTY), the option is left unset so internal registers work.
+local clipboard_provider = false
+for _, cmd in ipairs({
+  "wl-copy", "wl-paste", -- Wayland
+  "pbcopy", "pbpaste", -- macOS
+  "xclip", "xsel", -- X11
+}) do
+  if vim.fn.executable(cmd) == 1 then
+    clipboard_provider = true
+    break
+  end
+end
+if clipboard_provider or vim.env.SSH_TTY or os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY") then
+  opt.clipboard = "unnamedplus"
+end
 
 -- netrw (native file explorer).
 vim.g.netrw_banner = 0
