@@ -22,9 +22,10 @@ for open, close in pairs(pair_map) do
   open_for[close] = open
 end
 
-local function termcodes(s)
-  return vim.api.nvim_replace_termcodes(s, true, true, true)
-end
+-- Expr mappings return text that is re-fed as keys. Return symbolic keycodes
+-- (e.g. "<BS>") and let `replace_keycodes` decode them; pre-decoded termcodes
+-- (K_SPECIAL byte sequences) are inserted literally on newer Neovim versions,
+-- which made Backspace paste garbage instead of deleting.
 
 local function prev_char()
   local line = vim.api.nvim_get_current_line()
@@ -90,9 +91,9 @@ function M.handle_open(char)
       return "`"
     end
     if next_char() == "`" then
-      return termcodes("<Right>")
+      return "<Right>"
     end
-    return "`" .. "`" .. termcodes("<Left>")
+    return "`" .. "`" .. "<Left>"
   end
 
   local close = pair_map[char]
@@ -100,7 +101,7 @@ function M.handle_open(char)
     return char
   end
   -- Insert the pair and leave the cursor between them.
-  return char .. close .. termcodes("<Left>")
+  return char .. close .. "<Left>"
 end
 
 ---Handle a closing keystroke: skip over an existing auto-inserted close.
@@ -114,7 +115,7 @@ function M.handle_close(char)
     return char
   end
   if next_char() == char then
-    return termcodes("<Right>")
+    return "<Right>"
   end
   return char
 end
@@ -123,14 +124,14 @@ end
 ---@return string
 function M.handle_backspace()
   if not M.enabled or vim.fn.pumvisible() == 1 then
-    return termcodes("<BS>")
+    return "<BS>"
   end
   local p = prev_char()
   local n = next_char()
   if p ~= "" and pair_map[p] == n then
-    return termcodes("<BS><Del>")
+    return "<BS><Del>"
   end
-  return termcodes("<BS>")
+  return "<BS>"
 end
 
 function M.setup()
@@ -138,7 +139,7 @@ function M.setup()
   for open, _ in pairs(pair_map) do
     vim.keymap.set("i", open, function()
       return M.handle_open(open)
-    end, { expr = true, desc = "Auto-pair " .. open })
+    end, { expr = true, replace_keycodes = true, desc = "Auto-pair " .. open })
   end
 
   -- Closing pairs: skip when the next char is the same closing delimiter.
@@ -147,7 +148,7 @@ function M.setup()
     if pair_map[close] == nil then
       vim.keymap.set("i", close, function()
         return M.handle_close(close)
-      end, { expr = true, desc = "Auto-pair skip " .. close })
+      end, { expr = true, replace_keycodes = true, desc = "Auto-pair skip " .. close })
     end
   end
 
@@ -158,16 +159,16 @@ function M.setup()
   for _, q in ipairs({ '"', "'", "`" }) do
     vim.keymap.set("i", q, function()
       if M.enabled and vim.fn.pumvisible() ~= 1 and next_char() == q and prev_char() ~= "\\" then
-        return termcodes("<Right>")
+        return "<Right>"
       end
       return M.handle_open(q)
-    end, { expr = true, desc = "Auto-pair quote " .. q })
+    end, { expr = true, replace_keycodes = true, desc = "Auto-pair quote " .. q })
   end
 
   -- Backspace handling for empty pairs.
   vim.keymap.set("i", "<BS>", function()
     return M.handle_backspace()
-  end, { expr = true, desc = "Auto-pair backspace" })
+  end, { expr = true, replace_keycodes = true, desc = "Auto-pair backspace" })
 
   vim.api.nvim_create_user_command("AutoPairsToggle", function()
     M.enabled = not M.enabled

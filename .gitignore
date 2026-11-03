@@ -1,2 +1,5 @@
 .nvim-project-manifest
 nvim-backup-*.tar.gz
+
+# ohgo runtime state
+.ohgo/
