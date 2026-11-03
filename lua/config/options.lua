@@ -118,11 +118,10 @@ if clipboard_provider or vim.env.SSH_TTY or os.getenv("DISPLAY") or os.getenv("W
   opt.clipboard = "unnamedplus"
 end
 
--- netrw (native file explorer).
-vim.g.netrw_banner = 0
-vim.g.netrw_liststyle = 3
-vim.g.netrw_winsize = 25
-vim.g.netrw_keepdir = 1
+-- Directory browsing is owned by lua/config/filemanager.lua. Disable netrw so
+-- a directory buffer never falls back to a second, inconsistent explorer.
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
 
 -- Colorscheme: native, dark, low-distraction.
 vim.cmd.colorscheme("habamax")

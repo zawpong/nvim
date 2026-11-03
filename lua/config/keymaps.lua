@@ -15,8 +15,7 @@ map("n", "<leader>w", "<cmd>w<CR>", { desc = "Save file" })
 map("n", "<leader>q", "<cmd>q<CR>", { desc = "Quit window" })
 map("n", "<leader>qa", "<cmd>qa<CR>", { desc = "Quit all" })
 
--- File exploration (native netrw).
-map("n", "<leader>e", "<cmd>Lexplore<CR>", { desc = "Toggle file explorer" })
+-- File manager lives in filemanager.lua (<leader>e); netrw is disabled.
 
 -- Buffers.
 map("n", "<leader>bn", "<cmd>bnext<CR>", { desc = "Next buffer" })

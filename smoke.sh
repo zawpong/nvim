@@ -108,7 +108,7 @@ assert_contains "$out" "mapleader=[ ]" "options: mapleader is Space"
 
 out="$(runlua "modules" "
 local mods = {'config.options','config.statusline','config.git_context','config.diagnostics','config.treesitter',
-  'config.search','config.multicursor','config.images','config.keymaps','config.autocmds','config.lsp'}
+  'config.search','config.filemanager','config.multicursor','config.images','config.keymaps','config.autocmds','config.lsp'}
 for _, m in ipairs(mods) do
   local ok = pcall(require, m)
   if not ok then print('MODULE_FAIL ' .. m); return end
@@ -128,7 +128,7 @@ assert_contains "$out" "OPTIONS_OK" "essential options set (nvim >= 0.11 floor)"
 
 out="$(runlua "commands" "
 local cmds = vim.api.nvim_get_commands({})
-for _, name in ipairs({'SearchFiles','SearchGrep','SearchBuffers','SearchHelp','LspStatus','MulticursorInfo','ImageShow','TSStatus','HighlightStatus'}) do
+for _, name in ipairs({'SearchFiles','SearchGrep','SearchBuffers','SearchHelp','Files','LspStatus','MulticursorInfo','ImageShow','TSStatus','HighlightStatus'}) do
   if not cmds[name] then print('CMD_FAIL ' .. name); return end
 end
 print('COMMANDS_OK')")"
@@ -378,6 +378,127 @@ vim.wait(5000, function() return DONE end)
 if not DONE then print('WALK_TIMEOUT') end")"
 assert_contains "$out" "WALK_OK" "fd+rg absent: walk fallback works and notifies"
 
+# ---------------------------------------------------------------- file manager
+
+FM="$TMPBASE/fm dir"
+FM2="$TMPBASE/fm-ops"
+mkdir -p "$FM/sub" "$FM/.hidden" "$FM2/sub"
+printf 'alpha\n' > "$FM/a.txt"
+printf 'my file\n' > "$FM/my file.txt"
+printf 'beta\n' > "$FM/sub/b.txt"
+ln -s a.txt "$FM/link.txt"
+
+out="$(runlua "file manager ui" "
+local fm = require('config.filemanager')
+local function feed(keys)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'x', false)
+end
+assert(fm._open('$FM'))
+local st = fm._state()
+assert(st and st.cwd == '$FM', 'cwd: ' .. tostring(st and st.cwd))
+local names = {}
+for _, e in ipairs(st.view) do names[#names + 1] = e.name end
+assert(names[1] == 'sub', 'directories first: ' .. table.concat(names, ','))
+assert(vim.tbl_contains(names, 'my file.txt'), 'spaced file missing')
+assert(not vim.tbl_contains(names, '.hidden'), 'hidden file leaked into default view')
+local link
+for _, e in ipairs(st.view) do if e.name == 'link.txt' then link = e end end
+assert(link and link.link, 'symlink not flagged')
+feed('.')
+st = fm._state()
+assert(st.show_hidden, 'hidden toggle failed')
+assert(vim.tbl_contains((function() local n={} for _,e in ipairs(st.view) do n[#n+1]=e.name end return n end)(), '.hidden'),
+  'hidden entry not shown after toggle')
+feed('.')
+feed('j')
+assert(fm._state().cursor == 2, 'j did not move the selection')
+feed('m')
+assert(#fm._state().marked == 1, 'm did not mark the entry')
+feed('M')
+assert(#fm._state().marked == 0, 'M did not clear marks')
+local panel = fm._state()
+feed('?')
+assert(vim.api.nvim_get_current_buf() ~= panel.buf, 'help did not open')
+feed('q')
+assert(vim.api.nvim_get_current_win() == fm._state().win, 'help did not restore panel focus')
+feed('q')
+assert(fm._state() == nil, 'q did not close the panel')
+print('FM_UI_OK')")"
+assert_contains "$out" "FM_UI_OK" "file manager lists safely, toggles hidden, marks and closes"
+
+out="$(runlua "file manager operations" "
+local fm = require('config.filemanager')
+local uv = vim.uv
+assert(fm._open('$FM2'))
+local ok, err = fm._create('file', 'new file.txt')
+assert(ok, tostring(err))
+assert(vim.fn.filereadable('$FM2/new file.txt') == 1, 'new file not created')
+vim.fn.writefile({ 'hello' }, '$FM2/new file.txt')
+ok, err = fm._rename('$FM2/new file.txt', 'renamed.txt')
+assert(ok, tostring(err))
+assert(vim.fn.readfile('$FM2/renamed.txt')[1] == 'hello', 'rename lost contents')
+ok, err = fm._copy('$FM2/renamed.txt', '$FM2/copy.txt')
+assert(ok, tostring(err))
+assert(vim.fn.readfile('$FM2/copy.txt')[1] == 'hello', 'copy content mismatch')
+ok, err = fm._move('$FM2/copy.txt', '$FM2/sub/moved.txt')
+assert(ok, tostring(err))
+assert(vim.fn.filereadable('$FM2/sub/moved.txt') == 1 and uv.fs_lstat('$FM2/copy.txt') == nil, 'move failed')
+vim.fn.mkdir('$FM2/tree/deep', 'p')
+vim.fn.writefile({ 'nested' }, '$FM2/tree/deep/n.txt')
+ok, err = fm._copy('$FM2/tree', '$FM2/tree copy')
+assert(ok, tostring(err))
+assert(vim.fn.readfile('$FM2/tree copy/deep/n.txt')[1] == 'nested', 'recursive copy failed')
+assert(fm._delete('$FM2/tree copy'), 'recursive delete failed')
+assert(uv.fs_lstat('$FM2/tree copy') == nil, 'recursive delete left data')
+local made = uv.fs_symlink('renamed.txt', '$FM2/link.txt')
+assert(made, 'symlink fixture failed')
+ok, err = fm._copy('$FM2/link.txt', '$FM2/link copy.txt')
+assert(ok, tostring(err))
+local lst = uv.fs_lstat('$FM2/link copy.txt')
+assert(lst and lst.type == 'link', 'symlink not preserved: ' .. tostring(lst and lst.type))
+fm._delete('$FM2/link copy.txt')
+local unique = fm._unique('$FM2', 'renamed.txt')
+assert(vim.fs.basename(unique) == 'renamed copy.txt', 'unique name: ' .. unique)
+assert(not fm._copy('$FM2/renamed.txt', '$FM2/renamed.txt'), 'same-path copy must fail')
+local okc, errc = fm._copy('$FM2/renamed.txt', '$FM2/renamed.txt')
+assert(not okc and errc, 'collision refusal missing')
+assert(not fm._validate_name('..'), 'accepted ..')
+assert(not fm._validate_name('a/b'), 'accepted slash')
+assert(not fm._validate_name('bad\\1name'), 'accepted control char')
+assert(fm._validate_name('my file.txt'), 'rejected valid spaced name')
+-- Marks -> copy clipboard -> paste in another directory.
+assert(fm._select('renamed.txt'), 'could not select renamed.txt')
+fm._toggle_mark()
+assert(#fm._state().marked == 1, 'mark failed')
+fm._yank('copy')
+assert(fm._state().clipboard and fm._state().clipboard.op == 'copy', 'copy clipboard missing')
+assert(fm._set_directory('$FM2/sub'), 'navigate failed')
+fm._paste()
+assert(vim.fn.readfile('$FM2/sub/renamed.txt')[1] == 'hello', 'paste copy failed')
+assert(fm._set_directory('$FM2'), 'navigate back failed')
+fm._close()
+print('FM_OPS_OK')")"
+assert_contains "$out" "FM_OPS_OK" "file manager create/rename/copy/move/delete/marks/paste all work"
+
+out="$(runlua "file manager delete confirm" "
+local fm = require('config.filemanager')
+local function feed(keys)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), 'x', false)
+end
+vim.fn.writefile({ 'bye' }, '$FM2/byebye.txt')
+assert(fm._open('$FM2'))
+assert(fm._select('byebye.txt'), 'could not select byebye.txt')
+feed('d')
+assert(vim.api.nvim_get_current_win() ~= fm._state().win, 'delete confirmation did not open')
+feed('n')
+assert(vim.fn.filereadable('$FM2/byebye.txt') == 1, 'n still deleted the file')
+feed('d')
+feed('y')
+assert(vim.fn.filereadable('$FM2/byebye.txt') == 0, 'confirmed delete did not remove the file')
+fm._close()
+print('FM_DELETE_OK')")"
+assert_contains "$out" "FM_DELETE_OK" "file manager delete requires an explicit confirmation"
+
 # ---------------------------------------------------------------- LSP
 
 out="$(runlua "lsp load" "
@@ -423,7 +544,8 @@ assert_contains "$out" "TS_OK" "treesitter: parser-capable ft highlighted, other
 
 out="$(runlua "search keymaps" "
 local descs = { ['<Space>ff']='Fuzzy file search', ['<Space>fg']='Live content search',
-  ['<Space>fb']='Search open buffers', ['<Space>fh']='Search help topics' }
+  ['<Space>fb']='Search open buffers', ['<Space>fh']='Search help topics',
+  ['<Space>e']='Toggle file manager' }
 for key, want in pairs(descs) do
   local d = vim.fn.maparg(key, 'n', false, true)
   assert(type(d) == 'table' and next(d) ~= nil, key .. ' is NOT mapped')

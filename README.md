@@ -112,7 +112,7 @@ Leader is **Space**. Highlights:
 | `<leader>fg` | live ripgrep content search with preview |
 | `<leader>fb` | buffer search |
 | `<leader>fh` | help-topic search |
-| `<leader>e` | netrw file explorer |
+| `<leader>e` | native floating file manager (netrw disabled) |
 | `<leader>w` / `<leader>q` / `<leader>qa` | save / quit / quit all |
 | `<leader>sv` / `<leader>sh` / `<leader>sc` | splits |
 | `<leader>bn` / `<leader>bp` / `<leader>bd` / `<leader>bb` | buffers |
@@ -156,6 +156,46 @@ strings — so filenames with spaces, quotes, or dash-prefixed queries cannot
 cause shell injection, and no temporary files or orphaned jobs are left
 behind. `rg --vimgrep` rows are parsed as `path:line:col:text` with the
 path allowed to contain extra colons.
+
+## Native file manager
+
+`<leader>e` opens the from-scratch file manager. Netrw is disabled, so this is
+the only directory browser in the configuration. It starts in the current
+file's directory and closes as soon as a file is opened, leaving the editor
+layout untouched. `:Files [path]` opens the same panel.
+
+| Keys | Action |
+|---|---|
+| `j` / `k`, `Down` / `Up`, `Ctrl-N` / `Ctrl-P` | move selection |
+| `gg` / `G`, `Ctrl-D` / `Ctrl-U` | first / last, half page |
+| `l` / `Enter` / `o` | open file, or enter directory |
+| `h` / `-` / `Backspace` | parent directory |
+| `s` / `v` / `t` | open in split / vertical split / new tab |
+| `a` / `A` | create file / folder |
+| `i` / `r` / `d` | rename / delete marks or cursor (confirmed) |
+| `y` / `x` | copy / move cursor or marked entries |
+| `p` | paste into the current directory |
+| `m` / `M` | mark / clear marks |
+| `.` | show / hide dotfiles |
+| `/` / `Ctrl-L` | filter / clear filter |
+| `R` / `~` | refresh / home directory |
+| `?` | key reference |
+| `q` / `Esc` | close |
+
+Mark entries with `m` to operate on several files at once: `y` or `x`
+captures the marks (or the cursor when nothing is marked), then navigate and
+press `p`. The clipboard survives closing the panel, and the title shows how
+many paths it holds.
+
+Safety rules: names are validated before creation/rename (no separators, no
+`.`, `..`, no control characters), so the panel cannot escape the current
+directory. Existing destinations are never overwritten silently — a
+same-directory copy gets a `name copy` suffix, and collisions during paste
+ask for confirmation before the destination is replaced. Recursive copies
+roll back partial destinations on failure; symlinks are recreated rather than
+followed; moves across filesystems fall back to copy+delete. All filesystem
+work uses `vim.uv` directly, with no shell strings, external commands,
+plugins, or temporary files.
 
 ## Native multicursor usage
 
