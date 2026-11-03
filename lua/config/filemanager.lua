@@ -29,6 +29,8 @@ M.opts = {
   width_max = 52,
   max_entries = 20000,
   show_hidden = false,
+  show_icons = true,
+  show_git_status = true,
 }
 
 local ns = vim.api.nvim_create_namespace("nvim_config_filemanager")
@@ -181,6 +183,163 @@ local function is_executable(mode)
   return bit.band(mode, 73) ~= 0 -- 0o111
 end
 
+-- Map a filename/entry to a (glyph, highlight group) pair for the icon column.
+local function icon_for(entry)
+  if entry.broken then
+    return "", "FileManagerBroken"
+  end
+  if entry.is_dir then
+    if entry.link then
+      return "", "FileManagerSymlink"
+    end
+    return "", "FileManagerDir"
+  end
+  if entry.link then
+    return "", "FileManagerSymlink"
+  end
+  if entry.exec then
+    return "", "FileManagerExec"
+  end
+  local name = entry.name or ""
+  local lower = name:lower()
+  local ext = lower:match("%.([^.]+)$") or ""
+  local special = {
+    [".gitignore"] = "",
+    [".gitattributes"] = "",
+    ["makefile"] = "",
+    ["dockerfile"] = "",
+    ["readme.md"] = "",
+    ["license"] = "",
+  }
+  if special[lower] then
+    return special[lower], "FileManagerFile"
+  end
+  local by_ext = {
+    lua = "",
+    py = "",
+    js = "",
+    ts = "",
+    json = "",
+    md = "",
+    html = "",
+    css = "",
+    sh = "",
+    c = "",
+    cpp = "",
+    h = "",
+    rs = "",
+    go = "",
+    java = "",
+    rb = "",
+    php = "",
+    txt = "",
+    png = "",
+    jpg = "",
+    jpeg = "",
+    gif = "",
+    svg = "",
+  }
+  if by_ext[ext] then
+    return by_ext[ext], "FileManagerFile"
+  end
+  return "", "FileManagerFile"
+end
+
+local function repo_root_for(dir)
+  local home = uv.os_homedir()
+  local found = vim.fs.find(".git", {
+    upward = true,
+    stop = home,
+    path = dir,
+    limit = 1,
+  })[1]
+  return found and vim.fs.dirname(found) or nil
+end
+
+local function simplify_git_status(raw)
+  if not raw or raw == "" then
+    return nil
+  end
+  if raw == "??" then
+    return "?"
+  end
+  if raw == "!!" then
+    return "!"
+  end
+  local first = raw:sub(1, 1)
+  local second = raw:sub(2, 2)
+  local simple = second
+  if simple == " " or simple == "" then
+    simple = first
+  end
+  if simple == "" then
+    simple = first
+  end
+  if simple == " " then
+    simple = nil
+  end
+  return simple
+end
+
+local git_status_cache = {}
+
+local function git_status_cache_key(root, dir)
+  return root .. "\0" .. dir
+end
+
+local function invalidate_git_status_cache(dir)
+  if dir then
+    -- invalidate all keys for simplicity
+  end
+  git_status_cache = {}
+end
+
+local function git_status_map(dir, force)
+  local root = repo_root_for(dir)
+  if not root then
+    return {}
+  end
+  if vim.fn.executable("git") ~= 1 then
+    return {}
+  end
+  local key = git_status_cache_key(root, dir)
+  local cached = git_status_cache[key]
+  if not force and cached and (vim.uv.hrtime() - cached.time) < 2e9 then
+    return cached.map
+  end
+  -- Restrict to the current directory to reduce output on large repos.
+  local rel = dir:sub(#root + 2)
+  if rel == "" then
+    rel = "."
+  end
+  local args = { "git", "-C", root, "status", "--porcelain", "-z" }
+  if rel ~= "." then
+    args[#args + 1] = "--"
+    args[#args + 1] = rel
+  end
+  local res = vim.system(args, { text = true }):wait()
+  if not res or res.code ~= 0 then
+    return {}
+  end
+  local map = {}
+  local fields = vim.split(res.stdout or "", "\0", { plain = true })
+  local i = 1
+  while i <= #fields do
+    local rec = fields[i]
+    i = i + 1
+    if rec ~= "" then
+      local status = rec:sub(1, 2)
+      local path = rec:sub(4)
+      if status:find("R", 1, true) or status:find("C", 1, true) then
+        i = i + 1
+      end
+      map[root .. "/" .. path] = status
+    end
+  end
+  git_status_cache[key] = { time = vim.uv.hrtime(), map = map }
+  return map
+end
+
 ----------------------------------------
 -- Directory listing
 ----------------------------------------
@@ -196,6 +355,7 @@ local function read_dir(dir)
 
   local entries = {}
   local truncated = false
+  local status_map = git_status_map(dir)
   while true do
     local name, kind = uv.fs_scandir_next(scanner)
     if not name then
@@ -219,6 +379,12 @@ local function read_dir(dir)
         link = false,
         broken = false,
         exec = false,
+        icon = "",
+        icon_hl = "FileManagerFile",
+        git_status = nil,
+        git = nil,
+        git_raw = nil,
+        status = nil,
       }
       if entry.type == "link" then
         entry.link = true
@@ -236,6 +402,14 @@ local function read_dir(dir)
       elseif entry.type == "file" then
         entry.exec = is_executable(lst and lst.mode)
       end
+      local g_raw = status_map[entry.path]
+      entry.git_raw = g_raw
+      entry.git_status = simplify_git_status(g_raw)
+      entry.git = entry.git_status
+      entry.status = entry.git_status
+      local ic, ihl = icon_for(entry)
+      entry.icon = ic
+      entry.icon_hl = ihl
       entries[#entries + 1] = entry
     end
   end
@@ -409,29 +583,63 @@ function render()
         size = human_size(entry.size)
       end
       local suffix = entry.is_dir and "/" or (entry.link and "@" or "")
+      local icon = (M.opts.show_icons ~= false) and (entry.icon or "") or ""
+      local git = (M.opts.show_git_status ~= false) and (entry.git_status or "") or ""
+      local icon_prefix = icon ~= "" and (icon .. " ") or ""
       local size_w = size ~= "" and (width_of(size) + 1) or 0
-      local avail = math.max(4, s.width - 3 - size_w)
+      local git_w = git ~= "" and (width_of(git) + 1) or 0
+      local icon_w = icon ~= "" and (width_of(icon) + 1) or 0
+      local avail = math.max(4, s.width - 3 - icon_w - git_w - size_w)
       local label = fit_head(sanitize(entry.name) .. suffix, avail)
 
       local sel_char = (i == s.cursor) and "›" or " "
       local mark_char = marked and "●" or " "
       local gutter = sel_char .. mark_char .. " "
-      local line = gutter .. label
+      local line = gutter .. icon_prefix .. label
+      local icon_start = #gutter
+      local name_start = #gutter + #icon_prefix
+
+      local right_parts = {}
+      if git ~= "" then
+        right_parts[#right_parts + 1] = git
+      end
       if size ~= "" then
-        local pad = s.width - width_of(line) - width_of(size)
+        right_parts[#right_parts + 1] = size
+      end
+      local right_str = table.concat(right_parts, "  ")
+      local git_start = nil
+      local size_start = nil
+      if right_str ~= "" then
+        local pad = s.width - width_of(line) - width_of(right_str)
         if pad < 1 then
           pad = 1
         end
-        line = line .. string.rep(" ", pad) .. size
+        local right_begin = #line + pad
+        if git ~= "" then
+          git_start = right_begin
+        end
+        if size ~= "" then
+          -- size is last field
+          size_start = #line + pad + width_of(right_str) - width_of(size)
+          -- convert display-ish? use byte offsets approximately
+          size_start = #line + pad + #right_str - #size
+        end
+        line = line .. string.rep(" ", pad) .. right_str
       end
+
       lines[#lines + 1] = line
       row_meta[#row_meta + 1] = {
         entry = entry,
-        name_start = #gutter,
-        name_end = #gutter + #label,
+        icon = icon,
+        icon_start = icon_start,
+        icon_hl = entry.icon_hl,
+        name_start = name_start,
+        name_end = name_start + #label,
         mark_start = #sel_char,
         mark_end = #sel_char + #mark_char,
-        size_start = size ~= "" and (#line - #size) or nil,
+        git = git,
+        git_start = git_start,
+        size_start = size ~= "" and size_start or nil,
         selected = i == s.cursor,
         marked = marked,
       }
@@ -458,9 +666,25 @@ function render()
       if meta.marked then
         add_hl(s.buf, "FileManagerMark", row, meta.mark_start, meta.mark_end)
       end
+      if meta.icon and meta.icon ~= "" then
+        add_hl(s.buf, meta.icon_hl or "FileManagerFile", row, meta.icon_start, meta.icon_start + #meta.icon)
+      end
       add_hl(s.buf, entry_group(meta.entry), row, meta.name_start, meta.name_end)
       if meta.marked then
         add_hl(s.buf, "FileManagerMarkedName", row, meta.name_start, meta.name_end)
+      end
+      if meta.git and meta.git ~= "" and meta.git_start then
+        local hl = "FileManagerGitModified"
+        local st = meta.git
+        if st == "?" then hl = "FileManagerGitUntracked"
+        elseif st == "M" then hl = "FileManagerGitModified"
+        elseif st == "A" then hl = "FileManagerGitAdded"
+        elseif st == "D" then hl = "FileManagerGitDeleted"
+        elseif st == "R" then hl = "FileManagerGitRenamed"
+        elseif st == "U" then hl = "FileManagerGitConflict"
+        elseif st == "!" then hl = "FileManagerGitIgnored"
+        end
+        add_hl(s.buf, hl, row, meta.git_start, meta.git_start + #meta.git)
       end
       if meta.size_start then
         add_hl(s.buf, "FileManagerSize", row, meta.size_start, -1)
@@ -515,6 +739,7 @@ function refresh(select_name)
   if not s then
     return
   end
+  invalidate_git_status_cache()
   local entries, err, truncated = read_dir(s.cwd)
   if not entries then
     s.read_error = err
@@ -915,6 +1140,7 @@ local function create_entry(kind, name)
     uv.fs_close(fd)
   end
   reveal_name(name)
+  invalidate_git_status_cache()
   refresh(name)
   return true
 end
@@ -1029,6 +1255,7 @@ local function delete_current()
           vim.log.levels.ERROR)
       end
     end
+    invalidate_git_status_cache()
     refresh()
   end)
 end
@@ -1091,6 +1318,7 @@ local function rename_path(old_path, new_name)
   rebase_marks(old_path, dest)
   rebase_clipboard(old_path, dest)
   reveal_name(new_name)
+  invalidate_git_status_cache()
   refresh(new_name)
   return true
 end
@@ -1293,6 +1521,7 @@ local function paste()
       if clip.op == "move" then
         clipboard = nil
       end
+      invalidate_git_status_cache()
       refresh()
       return
     end
@@ -1848,6 +2077,12 @@ M._state = function()
       hidden = entry.hidden,
       link = entry.link,
       broken = entry.broken,
+      icon = entry.icon,
+      icon_hl = entry.icon_hl,
+      git_status = entry.git_status,
+      git = entry.git,
+      git_raw = entry.git_raw,
+      status = entry.status,
     }
   end
   local marked = marked_paths()

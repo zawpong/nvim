@@ -294,6 +294,13 @@ function M.apply()
   H("FileManagerHelpSection", { fg = green, bg = elevated, bold = true })
   H("FileManagerHelpKey", { fg = cyan, bg = elevated })
   H("FileManagerHelpDesc", { fg = secondary, bg = elevated })
+  H("FileManagerGitModified", { fg = warn, bold = true })
+  H("FileManagerGitAdded", { fg = green, bold = true })
+  H("FileManagerGitDeleted", { fg = err, bold = true })
+  H("FileManagerGitRenamed", { fg = cyan, bold = true })
+  H("FileManagerGitUntracked", { fg = cyan })
+  H("FileManagerGitConflict", { fg = err, bold = true })
+  H("FileManagerGitIgnored", { fg = muted })
 
   -- Statusline segments.
   H("StatusLineMode", { fg = bg, bg = secondary, bold = true })
